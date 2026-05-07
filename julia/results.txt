@@ -1,0 +1,6 @@
+CENTRALIZED
+EPSILON = 0 
+    Loss: 2.413833831001739
+    Accuracy: 98.21%
+    Loss: 2.731654575691209
+    Accuracy: 98.26%
