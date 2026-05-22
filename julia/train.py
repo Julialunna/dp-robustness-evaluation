@@ -10,7 +10,7 @@ from torchvision.transforms import Compose, Normalize, ToTensor
      
 
 from flwr_datasets import FederatedDataset
-from flwr_datasets.partitioner import IidPartitioner, PathologicalPartitioner
+from flwr_datasets.partitioner import IidPartitioner,  DirichletPartitioner
 from opacus.utils.batch_memory_manager import BatchMemoryManager
 from opacus.validators import ModuleValidator
 
@@ -61,10 +61,14 @@ def load_data(partition_id: int, num_partitions: int):
     global fds
     if fds is None:
         # partitioner = IidPartitioner(num_partitions=num_partitions)  # Particiona em IID
-        partitioner = PathologicalPartitioner(
+        partitioner = DirichletPartitioner(
             num_partitions=num_partitions,
-            num_classes_per_partition=4,  # CLASSES POR NÓ. BEM HETEROGENEO
             partition_by="label",
+            alpha=0.5,
+            min_partition_size=10,
+            self_balancing=True,
+            shuffle=True,
+            seed=42,
         )
         fds = FederatedDataset(
             dataset="ylecun/mnist",
