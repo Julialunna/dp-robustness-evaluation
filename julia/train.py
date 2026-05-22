@@ -103,26 +103,7 @@ def train(net, train_loader, privacy_engine, optimizer, target_delta, device, ep
             optimizer.zero_grad()
             criterion(net(images), labels).backward()
             optimizer.step()
-        # with BatchMemoryManager(
-        #     data_loader=train_loader,
-        #     max_physical_batch_size=32,
-        #     optimizer=optimizer,
-        # ) as memory_safe_data_loader:
-
-        #     for batch in memory_safe_data_loader:
-
-        #         images = batch["image"].to(device)
-        #         labels = batch["label"].to(device)
-
-        #         optimizer.zero_grad()
-
-        #         outputs = net(images)
-
-        #         loss = criterion(outputs, labels)
-
-        #         loss.backward()
-
-        #         optimizer.step()
+        
 
     if privacy_engine is not None:
         epsilon = privacy_engine.get_epsilon(delta=target_delta)

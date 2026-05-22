@@ -79,8 +79,6 @@ def run_centralized_dp(trainloader, testloader, num_classes, epochs:int, lr:floa
 
 
 
-
-
 my_dataset = load_dataset("ylecun/mnist")
 trainloader, testloader = load_dataset_centralized(my_dataset, batch_size=parameters_centralized.BATCH_SIZE)
 run_centralized_dp(trainloader, testloader, 10, epochs=parameters_centralized.EPOCHS, lr=parameters_centralized.LR)

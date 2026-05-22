@@ -55,16 +55,16 @@ class FlowerClient(NumPyClient):
         train.set_weights(model, parameters)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=parameters_federated.LR)
-
-        privacy_engine = PrivacyEngine(secure_mode=False)
-        (model, optimizer, self.train_loader) = privacy_engine.make_private(
-                                                      module=model,
-                                                      optimizer=optimizer,
-                                                      data_loader=self.train_loader,
-                                                      noise_multiplier=self.noise_multiplier,
-                                                      max_grad_norm=self.max_grad_norm,
-                                                      grad_sample_mode="ew"
-                                                      )
+        if parameters_federated.USE_DP :
+            privacy_engine = PrivacyEngine(secure_mode=False)
+            model, optimizer, self.train_loader = privacy_engine.make_private(
+                                                        module=model,
+                                                        optimizer=optimizer,
+                                                        data_loader=self.train_loader,
+                                                        noise_multiplier=self.noise_multiplier,
+                                                        max_grad_norm=self.max_grad_norm,
+                                                        grad_sample_mode="ew"
+                                                        )
 
         epsilon = train.train(
             model,
@@ -76,10 +76,13 @@ class FlowerClient(NumPyClient):
             epochs=parameters_federated.EPOCHS,
         )
 
-        if epsilon is not None:
-            print(f"Epsilon value for delta={self.target_delta} is {epsilon:.2f}")
+        if parameters_federated.USE_DP:
+            if epsilon is not None:
+                print(f"Epsilon value for delta={self.target_delta} is {epsilon:.2f}")
+            else:
+                print("Epsilon value not available.")
         else:
-            print("Epsilon value not available.")
+            print("Treinamento sem DP nesta rodada.")
 
         return (train.get_weights(model), len(self.train_loader.dataset), {})
 
