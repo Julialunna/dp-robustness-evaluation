@@ -10,10 +10,13 @@ from flwr.common import parameters_to_ndarrays
 
 import numpy as np
 from pathlib import Path
-
+import torch
 import train
 import parameters_federated
-
+from train import MLP, set_weights, test
+from datasets import load_dataset
+from torchvision.transforms import Compose, Normalize, ToTensor
+from torch.utils.data import DataLoader
 
 # Opacus logger seems to change the flwr logger to DEBUG level. Set back to INFO
 logging.getLogger("flwr").setLevel(logging.INFO)
@@ -27,33 +30,57 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     return {"accuracy": aggregated_accuracy}
 
 
-def get_evaluate_fn():
-    def evaluate(server_round: int, parameters: NDArrays, config: dict):
-        if server_round == parameters_federated.NUM_SERVER_ROUNDS:
-            print(f"\n[Servidor] Salvando modelo da última rodada ({server_round})...")
+# def get_evaluate_fn():
+#     def evaluate(server_round: int, parameters: NDArrays, config: dict):
+#         if server_round == parameters_federated.NUM_SERVER_ROUNDS:
+#             print(f"\n[Servidor] Salvando modelo da última rodada ({server_round})...")
             
-            save_path = Path("./modelos/modelo_final_FL_DP.npy")
-            save_path.parent.mkdir(parents=True, exist_ok=True)
+#             save_path = Path("./modelos/modelo_final_FL_DP.npy")
+#             save_path.parent.mkdir(parents=True, exist_ok=True)
             
-            params_array = np.empty(len(parameters), dtype=object)
-            for i, arr in enumerate(parameters):
-                params_array[i] = arr
+#             params_array = np.empty(len(parameters), dtype=object)
+#             for i, arr in enumerate(parameters):
+#                 params_array[i] = arr
             
-            np.save(save_path, params_array, allow_pickle=True)
-            print(f"[Servidor] Pesos salvos com sucesso em '{save_path}'")
+#             np.save(save_path, params_array, allow_pickle=True)
+#             print(f"[Servidor] Pesos salvos com sucesso em '{save_path}'")
         
-        return None
+#         return None
+#     return evaluate
+
+def get_test_loader(dataset_str:str):
+    dataset = load_dataset(dataset_str)
+    
+    pytorch_transforms = Compose([ToTensor(), Normalize((0.1307,), (0.3081,))])
+    def apply_transforms(batch):
+        batch["image"] = [pytorch_transforms(img) for img in batch["image"]]
+        return batch
+    test_data = dataset["test"].with_transform(apply_transforms)
+    testloader = DataLoader(test_data, batch_size=parameters_federated.BATCH_SIZE)
+    return testloader
+
+
+def get_evaluate_fn(testloader):
+    def evaluate(server_round: int, parameters: NDArrays, config: dict):
+        model=MLP(num_classes=10)
+        set_weights(model, parameters)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        loss, accuracy = test(model, testloader, device)
+        return loss, {"global_accuracy": accuracy}
     return evaluate
+    
 
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = parameters_federated.NUM_SERVER_ROUNDS
 
-    ndarrays = train.get_weights(train.MLP(parameters_federated.NUM_CLASSES))
+    ndarrays = train.get_weights(train.MLP(num_classes=parameters_federated.NUM_CLASSES))
     parameters = ndarrays_to_parameters(ndarrays)
-
+    testloader = get_test_loader("ylecun/mnist")
     strategy = FedAvg(
-        fraction_fit=0.1,
-        fraction_evaluate=0.1,
+        fraction_fit=parameters_federated.FRACTION_FIT,
+        fraction_evaluate=parameters_federated.FRACTION_EVALUATE,
+        evaluate_fn=get_evaluate_fn(testloader=testloader),
         evaluate_metrics_aggregation_fn=weighted_average,
         initial_parameters=parameters,
     )

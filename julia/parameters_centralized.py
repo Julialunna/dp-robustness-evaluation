@@ -1,4 +1,4 @@
-USE_DP = False
+USE_DP = True
 TARGET_DELTA = 1e-5
 
 MAX_GRAD_NORM = 1.2

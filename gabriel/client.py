@@ -30,7 +30,7 @@ class FlowerClient(NumPyClient):
         max_grad_norm,
     ) -> None:
         super().__init__()
-        self.model = train.MLP(num_classes=parameters_federated.NUM_CLASSES)
+        self.model = train.Net(parameters_federated.NUM_CLASSES)
 
         # errors = ModuleValidator.validate(self.model, strict=False)
 

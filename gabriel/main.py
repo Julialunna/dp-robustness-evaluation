@@ -1,9 +1,11 @@
 """opacus: Training with Sample-Level Differential Privacy using Opacus Privacy Engine."""
+
 from flwr.simulation import run_simulation
 from server import ServerApp, server_fn
 from client import ClientApp, client_fn
-import parameters_federated
 
+NUM_PARTITIONS = 100
+NUM_SERVER_ROUNDS = 10
 
 TARGET_DELTA = 1e-5
 MAX_GRAD_NORM = 2.0
@@ -22,6 +24,6 @@ import ray
 hist = run_simulation(
     server_app=server_app, 
     client_app=client_app, 
-    num_supernodes=parameters_federated.NUM_PARTITIONS,
+    num_supernodes=NUM_PARTITIONS,
     backend_config={"client_resources": client_resources}
 )
