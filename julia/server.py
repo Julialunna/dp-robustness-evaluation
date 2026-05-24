@@ -53,6 +53,25 @@ def get_evaluate_fn(testloader):
         return loss, {"global_accuracy": accuracy}
     return evaluate
     
+def fit_metrics_aggregation_fn(metrics):
+    epsilons = []
+
+    for num_examples, m in metrics:
+        if "epsilon-dp" in m:
+            epsilons.append(m["epsilon-dp"])
+
+    if len(epsilons) == 0:
+        return {}
+
+    epsilon_mean = sum(epsilons) / len(epsilons)
+    print(
+        f"\n---> [Servidor] Epsilon da rodada: "
+        f"médio={epsilon_mean:.2f}, "
+
+    )
+    return {
+        "epsilon_mean": epsilon_mean,
+    }
 
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = parameters_federated.NUM_SERVER_ROUNDS
@@ -66,6 +85,7 @@ def server_fn(context: Context) -> ServerAppComponents:
         evaluate_fn=get_evaluate_fn(testloader=testloader),
         evaluate_metrics_aggregation_fn=weighted_average,
         initial_parameters=parameters,
+        fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
     )
     config = ServerConfig(num_rounds=num_rounds)
     return ServerAppComponents(config=config, strategy=strategy)
