@@ -78,15 +78,27 @@ class FlowerClient(NumPyClient):
 
                 print(f"[Cliente {self.partition_id}] Accountant anterior carregado.")
                 privacy_engine.accountant.load_state_dict(accountant_state)
+                
+            
+            model, optimizer, train_loader = privacy_engine.make_private_with_epsilon(
+                module=model,
+                optimizer=optimizer,
+                data_loader=train_loader,
+                target_epsilon=parameters_federated.TARGET_EPSILON,
+                target_delta=self.target_delta,
+                epochs=parameters_federated.EPOCHS,
+                max_grad_norm=self.max_grad_norm,
+                grad_sample_mode="ew",
+            )
 
-            model, optimizer,train_loader = privacy_engine.make_private(
-                                                        module=model,
-                                                        optimizer=optimizer,
-                                                        data_loader=train_loader,
-                                                        noise_multiplier=self.noise_multiplier,
-                                                        max_grad_norm=self.max_grad_norm,
-                                                        grad_sample_mode="ew"
-                                                        )
+            # model, optimizer,train_loader = privacy_engine.make_private(
+            #                                             module=model,
+            #                                             optimizer=optimizer,
+            #                                             data_loader=train_loader,
+            #                                             noise_multiplier=self.noise_multiplier,
+            #                                             max_grad_norm=self.max_grad_norm,
+            #                                             grad_sample_mode="ew"
+            #                                             )
                 
             epsilon = train.train(
                 model,
