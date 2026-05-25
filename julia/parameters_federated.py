@@ -1,5 +1,5 @@
 USE_DP = True
-NUM_PARTITIONS = 100
+NUM_PARTITIONS = 10
 NUM_SERVER_ROUNDS = 50
 
 TARGET_DELTA = 1e-5  # probabilidade de falha da garantia de privacidade.

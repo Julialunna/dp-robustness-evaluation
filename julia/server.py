@@ -65,7 +65,7 @@ def fit_metrics_aggregation_fn(metrics):
 
     epsilon_mean = sum(epsilons) / len(epsilons)
     print(
-        f"\n---> [Servidor] Epsilon da rodada: "
+        f" [Servidor] Epsilon da rodada: "
         f"médio={epsilon_mean:.2f}, "
 
     )
@@ -80,8 +80,13 @@ def server_fn(context: Context) -> ServerAppComponents:
     parameters = ndarrays_to_parameters(ndarrays)
     testloader = get_test_loader("ylecun/mnist")
     strategy = FedAvg(
-        fraction_fit=parameters_federated.FRACTION_FIT,
-        fraction_evaluate=parameters_federated.FRACTION_EVALUATE,
+        fraction_fit=1.0,
+        min_fit_clients=parameters_federated.NUM_PARTITIONS,
+        min_available_clients=parameters_federated.NUM_PARTITIONS,
+
+        fraction_evaluate=1.0,
+        min_evaluate_clients=parameters_federated.NUM_PARTITIONS,
+    
         evaluate_fn=get_evaluate_fn(testloader=testloader),
         evaluate_metrics_aggregation_fn=weighted_average,
         initial_parameters=parameters,
