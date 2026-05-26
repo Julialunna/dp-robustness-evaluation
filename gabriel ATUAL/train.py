@@ -80,7 +80,7 @@ def load_data(partition_id: int, num_partitions: int):
 
     local_dp = AddLocalDP(parameters_federated.TARGET_EPSILON, parameters_federated.TARGET_DELTA, 784)
 
-    pytorch_transforms = Compose([ToTensor(), Normalize((parameters_federated.MEAN,), (parameters_federated.STD,)), local_dp])
+    pytorch_transforms = Compose([ToTensor(), local_dp, Normalize((parameters_federated.MEAN,), (parameters_federated.STD,))])
 
 
 
@@ -130,12 +130,24 @@ def test(net, test_loader, device):
 
 
 
+# class AddLocalDP:
+#     def __init__(self, epsilon, delta, img_size):
+#         sensibilidade = math.sqrt(img_size)
+#         self.std = (sensibilidade * math.sqrt(2 * math.log(1.25 / delta))) / epsilon
+
+#     def __call__(self, img):
+#         noise = torch.randn_like(img) * self.std
+#         return torch.clamp(img + noise, 0.0, 1.0)
+    
+from autodp.calibrator_zoo import eps_delta_calibrator
+from autodp.mechanism_zoo import GaussianMechanism
 class AddLocalDP:
     def __init__(self, epsilon, delta, img_size):
         sensibilidade = math.sqrt(img_size)
-        self.std = (sensibilidade * math.sqrt(2 * math.log(1.25 / delta))) / epsilon
+        calibrator = eps_delta_calibrator()
+        mech = calibrator(GaussianMechanism, epsilon, delta, [0.001, 1000])
+        self.std = mech.params['sigma'] * sensibilidade
 
     def __call__(self, img):
         noise = torch.randn_like(img) * self.std
         return torch.clamp(img + noise, 0.0, 1.0)
-    
