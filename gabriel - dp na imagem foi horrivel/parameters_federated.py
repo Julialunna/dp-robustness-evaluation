@@ -1,4 +1,5 @@
-NUM_PARTITIONS = 100
+USE_DP = True
+NUM_PARTITIONS = 10
 NUM_SERVER_ROUNDS = 50
 
 TARGET_DELTA = 1e-5  # probabilidade de falha da garantia de privacidade.
@@ -7,8 +8,8 @@ NOISE_MULTIPLIER = 0.8  # ruído gaussiano
 BATCH_SIZE = 256
 EPOCHS = 3
 
-
-FRACTION_FIT=0.3
+TARGET_EPSILON = 50
+FRACTION_FIT=0.1
 FRACTION_EVALUATE = 0.1
 
 

@@ -8,3 +8,4 @@ huggingface_hub
 httpx
 opacus
 numpy
+autodp
