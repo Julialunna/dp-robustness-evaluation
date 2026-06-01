@@ -78,7 +78,7 @@ def load_data(partition_id: int, num_partitions: int):
     # Divide data on each node: 80% train, 20% test
     partition_train_test = partition.train_test_split(test_size=0.2)
 
-    local_dp = AddLocalDP(parameters_federated.TARGET_EPSILON, parameters_federated.TARGET_DELTA, 784)
+    local_dp = AddLocalDP(parameters_federated.TARGET_EPSILON, parameters_federated.TARGET_DELTA, max_norm=1)
 
     pytorch_transforms = Compose([ToTensor(), local_dp, Normalize((parameters_federated.MEAN,), (parameters_federated.STD,))])
 
@@ -138,16 +138,31 @@ def test(net, test_loader, device):
 #     def __call__(self, img):
 #         noise = torch.randn_like(img) * self.std
 #         return torch.clamp(img + noise, 0.0, 1.0)
+
+# os código anteriores faziam clip entre 0 e 1, mas com ruído grande
+# fazer esse clamp é basicamente jogar a imagem fora e
     
 from autodp.calibrator_zoo import eps_delta_calibrator
 from autodp.mechanism_zoo import GaussianMechanism
 class AddLocalDP:
-    def __init__(self, epsilon, delta, img_size):
-        sensibilidade = math.sqrt(img_size)
-        calibrator = eps_delta_calibrator()
-        mech = calibrator(GaussianMechanism, epsilon, delta, [0.001, 1000])
-        self.std = mech.params['sigma'] * sensibilidade
+    def __init__(self, epsilon, delta, max_norm=1.0):
+        self.max_norm = max_norm
+        mech = eps_delta_calibrator()(GaussianMechanism, epsilon, delta, [0.001, 1000])
+        
+        base_sigma = mech.params['sigma']
+        sensibilidade = 2 * max_norm 
+        self.std = base_sigma * sensibilidade
 
     def __call__(self, img):
-        noise = torch.randn_like(img) * self.std
-        return torch.clamp(img + noise, 0.0, 1.0)
+        f = img.view(-1)
+        
+        norma = f.norm(p=2) + 1e-6
+        coef = self.max_norm / norma
+        coef_clipado = torch.clamp(coef, max=1.0)
+        
+        f_clipado = f * coef_clipado
+        
+        ruido = torch.randn_like(f) * self.std
+        f_ruidoso = f_clipado + ruido
+        
+        return f_ruidoso.view(img.size())
