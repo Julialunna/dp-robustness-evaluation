@@ -1,6 +1,6 @@
 USE_DP = True
 NUM_PARTITIONS = 10
-NUM_SERVER_ROUNDS = 50
+NUM_SERVER_ROUNDS = 20
 
 TARGET_DELTA = 1e-5  # probabilidade de falha da garantia de privacidade.
 MAX_GRAD_NORM = 1.2  #Limiar de clipping C — cada gradiente por amostra é clipado para ter norma L2 ≤ C
