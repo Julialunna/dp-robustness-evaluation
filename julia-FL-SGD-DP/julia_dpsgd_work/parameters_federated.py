@@ -1,21 +1,21 @@
-# ===============================
-# Flower / Federated classifier
-# ===============================
+
 NUM_PARTITIONS = 10
 NUM_SERVER_ROUNDS = 20
 FRACTION_FIT = 1.0
 FRACTION_EVALUATE = 1.0
-USE_LOCAL_DP_CVAE = False
+USE_LOCAL_DP_CVAE = True
 BATCH_SIZE = 256
 EPOCHS = 3  # local epochs of the federated downstream classifier
 LR = 0.001
 MOMENTUM = 0.9
 NUM_CLASSES = 10
 EVAL_GAUSSIAN_NOISE_SEED = 1234
-EVAL_GAUSSIAN_NOISE_STD = 0.5
+EVAL_GAUSSIAN_NOISE_STD1 = 0.1
+EVAL_GAUSSIAN_NOISE_STD2 = 0.25  
+EVAL_GAUSSIAN_NOISE_STD3 = 0.5
 # Dataset partitioning
 PARTITIONER = "dirichlet"  # "iid" or "dirichlet"
-DIRICHLET_ALPHA = 0.5
+DIRICHLET_ALPHA = 1
 
 # MNIST normalization
 MNIST_MEAN = 0.1307
@@ -23,30 +23,15 @@ MNIST_STD = 0.3081
 MEAN = MNIST_MEAN
 STD = MNIST_STD
 
-# ===============================
-# Important: DP is now applied to the local CVAE, not to the FL classifier.
-# The classifier is federated with FedAvg over synthetic embeddings.
-# ===============================
-USE_LOCAL_DP_CVAE = True
-
 TARGET_DELTA = 1e-5
 TARGET_EPSILON = 3.0  # fixed typo: previous file had TARGER_EPSILON
 MAX_GRAD_NORM = 1.2
 NOISE_MULTIPLIER = 0.8  # kept for compatibility; make_private_with_epsilon calibrates noise
 
-# ===============================
-# Frozen MLP embedding extractor
-# ===============================
 EMBEDDING_DIM = 128
 EMBEDDING_HIDDEN_SIZE = 256
 EMBEDDING_EXTRACTOR_SEED = 1234
-# ===============================
-# Public pretraining split for the frozen MLP embedding extractor
-# ===============================
-# The MNIST train set is split once, with no overlap:
-#   - PRETRAIN_RATIO: public/auxiliary subset used to train the embedding extractor
-#   - remaining examples: private/federated subset partitioned across clients
-# Differential privacy claims in this experiment apply to the private/federated subset.
+
 PRETRAIN_EXTRACTOR = True
 PRETRAIN_RATIO = 0.10
 DATA_SPLIT_SEED = 2026
@@ -56,13 +41,10 @@ PRETRAIN_LR = 1e-3
 PRETRAIN_WEIGHT_DECAY = 1e-4
 FORCE_RETRAIN_EXTRACTOR = False
 
-# Path to the extractor state_dict trained on the public/auxiliary 10%.
-# If the file does not exist and PRETRAIN_EXTRACTOR=True, main.py creates it before Flower starts.
+
 EMBEDDING_EXTRACTOR_PATH = "artifacts/mnist_mlp_extractor_public10.pt"
 
-# ===============================
-# Local DP-CVAE on embeddings
-# ===============================
+
 CVAE_HIDDEN_DIM = 256
 CVAE_LATENT_DIM = 32
 CVAE_BATCH_SIZE = 256
