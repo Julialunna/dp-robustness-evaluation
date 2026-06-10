@@ -389,20 +389,60 @@ def build_embedding_extractor(device: torch.device) -> EmbeddingMLP:
 # -----------------------------------------------------------------------------
 # Embedding extraction and downstream classifier training/evaluation
 # -----------------------------------------------------------------------------
+
+def add_gaussian_noise_to_normalized_images(
+    images: torch.Tensor,
+    noise_std: float,
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
+    
+    if noise_std <= 0:
+        return images
+
+    mean = parameters_federated.MEAN
+    std = parameters_federated.STD
+
+    images_pixel = images * std + mean
+
+    noise = torch.randn(
+        images_pixel.shape,
+        device=images_pixel.device,
+        dtype=images_pixel.dtype,
+        generator=generator,
+    ) * noise_std
+
+    noisy_pixel = images_pixel + noise
+    noisy_pixel = torch.clamp(noisy_pixel, 0.0, 1.0)
+
+    noisy_normalized = (noisy_pixel - mean) / std
+    return noisy_normalized
+
 @torch.no_grad()
 def extract_embeddings_from_loader(
     embedding_model: nn.Module,
     loader: DataLoader,
     device: torch.device,
+    image_noise_std: float = 0.0,
+    image_noise_seed: int | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Convert a MNIST dataloader into tensors of embeddings and labels."""
     embedding_model.to(device)
     embedding_model.eval()
     all_embeddings, all_labels = [], []
+    generator = None
+    if image_noise_std > 0 and image_noise_seed is not None:
+        generator = torch.Generator(device=device)
+        generator.manual_seed(image_noise_seed)
 
     for batch in loader:
         images = batch["image"].to(device)
         labels = batch["label"].long()
+        if image_noise_std > 0:
+            images = add_gaussian_noise_to_normalized_images(
+                images,
+                image_noise_std,
+                generator=generator,
+            )
         embeddings = embedding_model(images).cpu()
         all_embeddings.append(embeddings)
         all_labels.append(labels.cpu())

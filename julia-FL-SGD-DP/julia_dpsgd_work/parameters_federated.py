@@ -5,13 +5,14 @@ NUM_PARTITIONS = 10
 NUM_SERVER_ROUNDS = 20
 FRACTION_FIT = 1.0
 FRACTION_EVALUATE = 1.0
-
+USE_LOCAL_DP_CVAE = False
 BATCH_SIZE = 256
 EPOCHS = 3  # local epochs of the federated downstream classifier
 LR = 0.001
 MOMENTUM = 0.9
 NUM_CLASSES = 10
-
+EVAL_GAUSSIAN_NOISE_SEED = 1234
+EVAL_GAUSSIAN_NOISE_STD = 0.5
 # Dataset partitioning
 PARTITIONER = "dirichlet"  # "iid" or "dirichlet"
 DIRICHLET_ALPHA = 0.5

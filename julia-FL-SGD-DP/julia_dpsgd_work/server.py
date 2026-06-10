@@ -39,8 +39,14 @@ def get_test_loader(dataset_str: str):
     return DataLoader(test_data, batch_size=parameters_federated.BATCH_SIZE)
 
 
+
+
 def get_evaluate_fn(testloader):
+    clean_eval_loader = None
+    noisy_eval_loader = None
+
     def evaluate(server_round: int, parameters: NDArrays, config: dict):
+        nonlocal clean_eval_loader, noisy_eval_loader
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = train.EmbeddingClassifier(
             input_size=parameters_federated.EMBEDDING_DIM,
@@ -48,17 +54,67 @@ def get_evaluate_fn(testloader):
             num_classes=parameters_federated.NUM_CLASSES,
         )
         train.set_weights(model, parameters)
-        embedding_model = train.build_embedding_extractor(device)
-        loss, accuracy = train.test_embedding_classifier_from_images(
+    
+        if clean_eval_loader is None or noisy_eval_loader is None:
+            embedding_model = train.build_embedding_extractor(device)
+
+            clean_embeddings, clean_labels = train.extract_embeddings_from_loader(
+                embedding_model,
+                testloader,
+                device,
+                image_noise_std=0.0,
+            )
+
+            noisy_embeddings, noisy_labels = train.extract_embeddings_from_loader(
+                embedding_model,
+                testloader,
+                device,
+                image_noise_std=parameters_federated.EVAL_GAUSSIAN_NOISE_STD,
+                image_noise_seed=parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
+            )
+
+            clean_eval_loader = train.make_embedding_loader(
+                clean_embeddings,
+                clean_labels,
+                batch_size=parameters_federated.BATCH_SIZE,
+                shuffle=False,
+            )
+
+            noisy_eval_loader = train.make_embedding_loader(
+                noisy_embeddings,
+                noisy_labels,
+                batch_size=parameters_federated.BATCH_SIZE,
+                shuffle=False,
+            )
+
+
+        loss_clean, accuracy_clean = train.test_embedding_classifier_on_loader(
             model,
-            embedding_model,
-            testloader,
+            clean_eval_loader,
             device,
         )
-        print(f"[Servidor] Avaliação global centralizada: acc={accuracy * 100:.2f}%")
-        return loss, {"global_accuracy": accuracy}
+
+        loss_noisy, accuracy_noisy = train.test_embedding_classifier_on_loader(
+            model,
+            noisy_eval_loader,
+            device,
+        )
+        print(
+            f"[Servidor] Avaliação global | "
+            f"sem ruído: acc={accuracy_clean * 100:.2f}% | "
+            f"com ruído: acc={accuracy_noisy * 100:.2f}%"
+        )
+
+        return loss_clean, {
+            "global_accuracy": accuracy_clean,
+            "global_accuracy_noisy": accuracy_noisy,
+            "accuracy_drop_noise": accuracy_clean - accuracy_noisy,
+            "global_loss_noisy": loss_noisy,
+            "eval_noise_std": parameters_federated.EVAL_GAUSSIAN_NOISE_STD,
+        }
 
     return evaluate
+
 
 
 def fit_metrics_aggregation_fn(metrics):
