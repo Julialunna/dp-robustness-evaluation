@@ -145,6 +145,7 @@ def get_evaluate_fn(testloader):
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: acc={accuracy_noisy2 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: acc={accuracy_noisy3 * 100:.2f}%"
 )
+            print(f"{accuracy_clean}  {accuracy_noisy1}  {accuracy_noisy2}  {accuracy_noisy3}")
             
             return loss_clean, {
                 "global_accuracy": accuracy_clean,
@@ -227,3 +228,4 @@ def server_fn(context: Context) -> ServerAppComponents:
 
 
 server_app = ServerApp(server_fn=server_fn)
+logging.getLogger("flwr").setLevel(logging.ERROR)
