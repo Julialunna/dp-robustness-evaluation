@@ -18,6 +18,8 @@ PARTITIONER = "iid"  #  or "dirichlet"
 DIRICHLET_ALPHA = 1
 
 # MNIST normalization
+#dados das imagens (varia de acordo com dataset)
+IMG_SIZE = 28
 MNIST_MEAN = 0.1307
 MNIST_STD = 0.3081
 MEAN = MNIST_MEAN
@@ -47,13 +49,13 @@ EMBEDDING_EXTRACTOR_PATH = "artifacts/mnist_mlp_extractor_public10.pt"
 
 CVAE_HIDDEN_DIM = 256
 CVAE_LATENT_DIM = 32
-CVAE_BATCH_SIZE = 256
-CVAE_EPOCHS = 10
+CVAE_BATCH_SIZE = 128
+CVAE_EPOCHS = 20
 CVAE_LR = 1e-3
 CVAE_BETA = 0.1
 
 # Synthetic dataset generation
-SYNTHETIC_MULTIPLIER = 1.0  # 1.0 = generate same number as local real train examples
+SYNTHETIC_MULTIPLIER = 1.0  # 1.0 gera a mesma quantidade de imagens que o cliente tem, podemos talvez tentar ter 2.0 ver se melhora a performance, mas aumenta o tempo de execução. 0.5 gera metade das imagens do cliente, 2.0 gera o dobro.
 # "uniform" avoids directly reusing exact private label counts; "real_distribution" may improve non-IID utility.
 SYNTHETIC_LABEL_MODE = "real_distribution"
 SYNTHETIC_CACHE_DIR = "artifacts/synthetic_embeddings"

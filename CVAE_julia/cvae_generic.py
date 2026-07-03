@@ -10,6 +10,7 @@ import os
 import matplotlib.pyplot as plt
 from flwr_datasets.partitioner import DirichletPartitioner
 from flwr_datasets import FederatedDataset
+from collections import Counter
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 torch.manual_seed(42)
@@ -25,6 +26,7 @@ LATENT_DIM = 32
 BATCH_SIZE = 128
 EPOCHS = 20
 LR = 1e-3
+CLIENT_ID = 0
 #numero de filtros de cada camada convolucional
 BASE_CH = 32           
 partitioner = DirichletPartitioner(
@@ -40,18 +42,34 @@ fds = FederatedDataset(
             partitioners={"train": partitioner},
         )
 
-partition = fds.load_partition(0)
-#baixando dados e criando dataloaders
+partition = fds.load_partition(CLIENT_ID, "train")
+
 transform = transforms.Compose([
     transforms.Resize(IMG_SIZE),
     transforms.ToTensor(),
 ])
-train_ds = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+def apply_transforms(batch):
+    batch["image"] = [transform(img) for img in batch["image"]]
+    return batch
+train_ds = partition.with_transform(apply_transforms)
 test_ds = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
-test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
+
+#-----Distribuição dados------
+labels_client = partition["label"]
+counts = Counter(labels_client)
+
+print(f"\nDistribuição de classes do cliente {CLIENT_ID}")
+print(f"Total de amostras: {len(labels_client)}")
+
+for classe in range(NUM_CLASSES):
+    qtd = counts.get(classe, 0)
+    pct = 100 * qtd / len(labels_client)
+    print(f"Classe {classe}: {qtd} amostras ({pct:.2f}%)")
+#-----Distribuição dados------
 
 #transforma rótulos inteiros em one-hot
 def one_hot(labels, num_classes=NUM_CLASSES):
@@ -176,11 +194,22 @@ def train():
     for epoch in range(1, EPOCHS + 1):
         model.train()
         total_loss, total_recon, total_kld = 0, 0, 0
-        for x, y in train_loader:
+
+        for batch in train_loader:
+            x = batch["image"]
+            y = batch["label"]
+
             x = x.to(device)
+
+            if not torch.is_tensor(y):
+                y = torch.tensor(y)
+
+            y = y.to(device)
+
             if IN_CHANNELS == 1 and x.size(1) != 1:
-                x = x.mean(dim=1, keepdim=True)   # salvaguarda caso o dataset venha RGB
-            c = one_hot(y.to(device))
+                x = x.mean(dim=1, keepdim=True)
+
+            c = one_hot(y)
 
             optimizer.zero_grad()
             x_hat, mu, logvar = model(x, c)
@@ -205,7 +234,7 @@ def train():
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training Loss")
-    plt.savefig("training_loss.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"training_loss_client_{CLIENT_ID}.png", dpi=300, bbox_inches="tight")
     plt.close()
     return model
 
@@ -217,7 +246,7 @@ def generate_samples(model, epoch, n_per_class=8):
     labels = torch.arange(NUM_CLASSES).repeat_interleave(n_per_class).to(device)
     c = one_hot(labels)
     imgs = model.decoder(z, c)
-    save_image(imgs, f"samples/epoch_{epoch:02d}.png", nrow=n_per_class)
+    save_image(imgs, f"samples/epoch_{epoch:02d}_client_{CLIENT_ID}.png", nrow=n_per_class)
 
 
 if __name__ == "__main__":

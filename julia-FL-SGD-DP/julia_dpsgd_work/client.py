@@ -13,16 +13,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class FlowerClient(NumPyClient):
-    """Flower client for the proposed two-stage pipeline.
 
-    Stage 1, local only:
-        real MNIST -> frozen MLP embeddings -> local DP-CVAE -> synthetic embeddings
-
-    Stage 2, federated:
-        FedAvg trains this client's downstream classifier on synthetic embeddings.
-
-    The CVAE is NOT aggregated. Only the classifier weights are sent to the server.
-    """
 
     def __init__(
         self,
@@ -143,10 +134,10 @@ class FlowerClient(NumPyClient):
         result = dp_cvae.train_local_dp_cvae(
             real_embeddings,
             real_labels,
-            input_dim=parameters_federated.EMBEDDING_DIM,
             num_classes=parameters_federated.NUM_CLASSES,
-            latent_dim=parameters_federated.CVAE_LATENT_DIM,
+            input_dim=parameters_federated.EMBEDDING_DIM,
             hidden_dim=parameters_federated.CVAE_HIDDEN_DIM,
+            latent_dim=parameters_federated.CVAE_LATENT_DIM,
             batch_size=parameters_federated.CVAE_BATCH_SIZE,
             epochs=parameters_federated.CVAE_EPOCHS,
             lr=parameters_federated.CVAE_LR,
@@ -158,18 +149,12 @@ class FlowerClient(NumPyClient):
             device=self.device,
         )
 
-        num_synthetic = max(
-            parameters_federated.NUM_CLASSES,
-            int(len(real_labels) * parameters_federated.SYNTHETIC_MULTIPLIER),
-        )
         synthetic_embeddings, synthetic_labels = dp_cvae.generate_synthetic_embeddings(
             result.model,
-            num_samples=num_synthetic,
+            real_labels=real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
             latent_dim=parameters_federated.CVAE_LATENT_DIM,
             device=self.device,
-            label_mode=parameters_federated.SYNTHETIC_LABEL_MODE,
-            real_labels=real_labels,
         )
 
         epsilon = result.epsilon
