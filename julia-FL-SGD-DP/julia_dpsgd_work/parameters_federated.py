@@ -16,6 +16,17 @@ EVAL_GAUSSIAN_NOISE_STD3 = 0.5
 # Dataset partitioning
 PARTITIONER = "iid"  #  or "dirichlet"
 DIRICHLET_ALPHA = 1
+FOUNDATION_MODEL = "efficientnet_b0"
+FOUNDATION_IMAGE_SIZE = 224
+EMBEDDING_DIM = 1280
+EMBEDDING_HIDDEN_SIZE = 256
+# # MobileNetV3-Small
+# FOUNDATION_MODEL = "mobilenet_v3_small"
+# EMBEDDING_DIM = 576
+
+# # DINOv2-S
+# FOUNDATION_MODEL = "dinov2_s"
+# EMBEDDING_DIM = 384
 
 # MNIST normalization
 #dados das imagens (varia de acordo com dataset)
@@ -31,6 +42,7 @@ MAX_GRAD_NORM = 1.2
 NOISE_MULTIPLIER = 0.8  # kept for compatibility; make_private_with_epsilon calibrates noise
 
 EMBEDDING_DIM = 128
+#e usar EfficientNet-B0 com embedding 1280 ou MedMNIST mais difícil colocar 512
 EMBEDDING_HIDDEN_SIZE = 256
 EMBEDDING_EXTRACTOR_SEED = 1234
 
