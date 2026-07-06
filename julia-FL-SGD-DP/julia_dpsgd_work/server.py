@@ -28,7 +28,7 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 def get_test_loader(dataset_str: str):
     dataset = load_dataset(dataset_str)
     pytorch_transforms = Compose(
-        [ToTensor(), Normalize((parameters_federated.MEAN,), (parameters_federated.STD,))]
+        [ToTensor()]
     )
 
     def apply_transforms(batch):
@@ -93,7 +93,7 @@ def get_evaluate_fn(testloader):
                 batch_size=parameters_federated.BATCH_SIZE,
                 shuffle=False,
             )
-            loss_noisy1, accuracy_noisy1 = train.test_embedding_classifier_on_loader(
+            loss_noisy1, accuracy_noisy1 = train.test(
                 model,
                 noisy_eval_loader1,
                 device,
@@ -114,7 +114,7 @@ def get_evaluate_fn(testloader):
                 batch_size=parameters_federated.BATCH_SIZE,
                 shuffle=False,
             )
-            loss_noisy2, accuracy_noisy2 = train.test_embedding_classifier_on_loader(
+            loss_noisy2, accuracy_noisy2 = train.test(
                 model,
                 noisy_eval_loader2,
                 device,
@@ -135,7 +135,7 @@ def get_evaluate_fn(testloader):
                 batch_size=parameters_federated.BATCH_SIZE,
                 shuffle=False,
             )
-            loss_noisy3, accuracy_noisy3 = train.test_embedding_classifier_on_loader(
+            loss_noisy3, accuracy_noisy3 = train.test(
                 model,
                 noisy_eval_loader3,
                 device,

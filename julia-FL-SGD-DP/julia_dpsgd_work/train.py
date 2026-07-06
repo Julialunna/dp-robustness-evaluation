@@ -90,26 +90,45 @@ def preprocess_image(images, device, image_size = 224):
 
 @torch.no_grad()
 def extract_embeddings_from_loader(
-    foundation_model: nn.Module,
-    loader: DataLoader,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    foundation_model,
+    loader,
+    device,
+    image_noise_std=0.0,
+    image_noise_seed=None,
+):
     foundation_model.to(device)
     foundation_model.eval()
-    
+
+    generator = None
+    if image_noise_seed is not None:
+        generator = torch.Generator(device=device).manual_seed(image_noise_seed)
+
     embeddings_list = []
     labels_list = []
-    
+
     for batch in loader:
-        images = batch["image"]
+        images = batch["image"].to(device)
         labels = batch["label"]
 
-        images = preprocess_image(images, device, image_size=parameters_federated.FOUNDATION_IMAGE_SIZE)
+        if image_noise_std > 0:
+            noise = torch.randn(
+                images.shape,
+                generator=generator,
+                device=device,
+                dtype=images.dtype,
+            )
+            images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
+
+        images = preprocess_image(
+            images,
+            device,
+            image_size=parameters_federated.FOUNDATION_IMAGE_SIZE,
+        )
 
         embeddings = foundation_model(images)
         embeddings_list.append(embeddings.cpu())
         labels_list.append(labels.cpu())
-    
+
     return torch.cat(embeddings_list, dim=0), torch.cat(labels_list, dim=0)
 
 class EmbeddingClassifier(nn.Module):
