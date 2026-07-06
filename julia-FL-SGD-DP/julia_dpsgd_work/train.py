@@ -101,6 +101,7 @@ def extract_embeddings_from_loader(
 
     generator = None
     if image_noise_seed is not None:
+        #gerador de números aleatórios com seed fixa
         generator = torch.Generator(device=device).manual_seed(image_noise_seed)
 
     embeddings_list = []
