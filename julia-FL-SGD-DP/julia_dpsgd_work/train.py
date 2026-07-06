@@ -6,9 +6,10 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, Normalize, ToTensor
 
 from flwr_datasets import FederatedDataset
-from flwr_datasets.partitioner import DirichletPartitioner
+from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
 
 import parameters_federated
+import torch.nn.functional as F
 
 
 from torchvision.models import (
@@ -21,7 +22,7 @@ from torchvision.models import (
 fds = None
 
 
-def build_foundation_extractor(model_name: str, device: torch.device):
+def define_foundation_extractor(model_name: str, device: torch.device):
     if model_name == "efficientnet_b0":
         weights = EfficientNet_B0_Weights.DEFAULT
         model = efficientnet_b0(weights=weights)
@@ -66,6 +67,51 @@ def build_foundation_extractor(model_name: str, device: torch.device):
 
     return extractor, embedding_dim
 
+#o dinov2 faz center crop, corta para ficar só o centro da imagem, normalmente no ImageNet o objeto está no centro, mas no MEDMNIST pode não estar então não vou fazer center crop, vou só redimensionar para 224x224 e normalizar com os valores do ImageNet
+def preprocess_image(images, device, image_size = 224):
+    images = images.to(device).float()
+    if images.dim() == 3:
+        images = images.unsqueeze(1)
+    #MNIST tem 1 canal, mas EfficientNet e MobileNet esperam 3 canais, então faço ter 3 
+    if images.size(1) == 1:
+        images = images.repeat(1, 3, 1, 1)
+    #aumenta o tamanho da imagem para 224x224, que é o tamanho esperado 
+    images = F.interpolate(
+        images,
+        size=(image_size, image_size),
+        mode="bilinear",
+        align_corners=False,
+    )
+
+    imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    imagenet_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+    return (images - imagenet_mean) / imagenet_std
+
+@torch.no_grad()
+def extract_embeddings_from_loader(
+    foundation_model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    foundation_model.to(device)
+    foundation_model.eval()
+    
+    embeddings_list = []
+    labels_list = []
+    
+    for batch in loader:
+        images = batch["image"]
+        labels = batch["label"]
+
+        images = preprocess_image(images, device, image_size=parameters_federated.FOUNDATION_IMAGE_SIZE)
+
+        embeddings = foundation_model(images)
+        embeddings_list.append(embeddings.cpu())
+        labels_list.append(labels.cpu())
+    
+    return torch.cat(embeddings_list, dim=0), torch.cat(labels_list, dim=0)
+
 class EmbeddingClassifier(nn.Module):
     def __init__(self, input_size, hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE, num_classes=10, dropout=0.2):
         super(EmbeddingClassifier, self).__init__()
@@ -107,15 +153,19 @@ def set_weights(net, parameters):
 def load_data(partition_id: int, num_partitions: int):
     global fds
     if fds is None:
-        partitioner = DirichletPartitioner(
-            num_partitions=num_partitions,
-            partition_by="label",
-            alpha=0.5,
-            min_partition_size=10,
-            self_balancing=True,
-            shuffle=True,
-            seed=42,
-        )
+        if parameters_federated.PARTITIONER == "iid":
+            partitioner = IidPartitioner(num_partitions=num_partitions)
+        elif parameters_federated.PARTITIONER == "dirichlet":
+            partitioner = DirichletPartitioner(
+                num_partitions=num_partitions,
+                partition_by="label",
+                alpha=parameters_federated.DIRICHLET_ALPHA,
+                min_partition_size=10,
+                self_balancing=True,
+                shuffle=True,
+            )
+        else:
+            raise ValueError(f"Particionador desconhecido: {parameters_federated.PARTITIONER}")
         fds = FederatedDataset(
             dataset="ylecun/mnist",
             partitioners={"train": partitioner},
@@ -148,40 +198,70 @@ def load_data(partition_id: int, num_partitions: int):
     return train_loader, test_loader
 
 
-def train(net, train_loader, privacy_engine, optimizer, target_delta, device, epochs=1):
+def make_embedding_loader(
+    embeddings: torch.Tensor,
+    labels: torch.Tensor,
+    batch_size: int,
+    shuffle: bool = True,
+) -> DataLoader:
+    dataset = torch.utils.data.TensorDataset(embeddings.float(), labels.long())
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+
+def train(net, embedding_loader,  optimizer, target_delta, device, privacy_engine = None,epochs=1):
     criterion = torch.nn.CrossEntropyLoss()
     net.to(device)
     net.train()
 
     for _ in range(epochs):
-        for batch in train_loader:
-            images = batch["image"].to(device)
-            labels = batch["label"].to(device)
+        for embeddings, labels in embedding_loader:
+            embeddings = embeddings.to(device)
+            labels = labels.to(device)
 
             optimizer.zero_grad()
-            criterion(net(images), labels).backward()
+            criterion(net(embeddings), labels).backward()
             optimizer.step()
 
     if privacy_engine is not None:
         epsilon = privacy_engine.get_epsilon(delta=target_delta)
         return epsilon
 
-
-def test(net, test_loader, device):
+def test(net, embedding_loader, device):
     net.to(device)
     net.eval()
 
     criterion = torch.nn.CrossEntropyLoss()
     correct, loss = 0, 0.0
+    total = 0
 
     with torch.no_grad():
-        for batch in test_loader:
-            images = batch["image"].to(device)
-            labels = batch["label"].to(device)
+        for embeddings, labels in embedding_loader:
+            embeddings = embeddings.to(device)
+            labels = labels.to(device)
 
-            outputs = net(images)
-            loss += criterion(outputs, labels).item()
-            correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
+            outputs = net(embeddings)
+            loss += criterion(outputs, labels).item() * labels.size(0)
+            correct += (outputs.argmax(dim=1) == labels).sum().item()
+            total += labels.size(0)
 
-    accuracy = correct / len(test_loader.dataset)
+    accuracy = correct / max(total, 1)
+    loss = loss / max(total, 1)
+
     return loss, accuracy
+
+@torch.no_grad()
+def test_embedding_classifier_from_images(classifier, foundation_model, image_loader, device):
+    embeddings, labels = extract_embeddings_from_loader(
+        foundation_model,
+        image_loader,
+        device,
+    )
+
+    embedding_loader = make_embedding_loader(
+        embeddings,
+        labels,
+        batch_size=parameters_federated.BATCH_SIZE,
+        shuffle=False,
+    )
+
+    return test(classifier, embedding_loader, device)

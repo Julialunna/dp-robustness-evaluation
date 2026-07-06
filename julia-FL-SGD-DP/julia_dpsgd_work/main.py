@@ -20,7 +20,6 @@ client_resources = {
 
 # Important: create/load the public-pretrained extractor before clients/server
 # try to build their frozen embedding model.
-train.ensure_embedding_extractor_ready()
 
 server_app = ServerApp(server_fn=server_fn)
 client_app = ClientApp(client_fn=client_fn)

@@ -14,19 +14,11 @@ import parameters_federated
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-torch.manual_seed(42)
-
 #configuração dataset 
-# MNIST = 28. MedMNIST tem variantes 28/64/128/22d4
-IMG_SIZE = parameters_federated.IMG_SIZE         
+# MNIST = 28. MedMNIST tem variantes 28/64/128/22d4       
 NUM_CLASSES = parameters_federated.NUM_CLASSES    
 LATENT_DIM = parameters_federated.CVAE_LATENT_DIM  
-
-BATCH_SIZE = parameters_federated.CVAE_BATCH_SIZE
-EPOCHS = parameters_federated.CVAE_EPOCHS
-LR = parameters_federated.CVAE_LR
-#numero de filtros de cada camada convolucional
-BASE_CH = 32           
+       
 
 #transforma rótulos inteiros em one-hot
 def one_hot(labels, num_classes=NUM_CLASSES):
@@ -253,7 +245,7 @@ def train_local_dp_cvae(
             optimizer.zero_grad(set_to_none=True)
             c_batch = one_hot(y_batch, num_classes= num_classes)
             recon, mu, logvar = model(x_batch, c_batch)
-            loss = loss_function(recon, x_batch, mu, logvar, beta=parameters_federated.CVAE_BETA)
+            loss = loss_function(recon, x_batch, mu, logvar, beta=beta)
             loss.backward()
             optimizer.step()
 

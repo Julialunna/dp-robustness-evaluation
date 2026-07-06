@@ -8,9 +8,7 @@ from flwr.common import Context
 import dp_cvae
 import parameters_federated
 import train
-
 warnings.filterwarnings("ignore", category=UserWarning)
-
 
 class FlowerClient(NumPyClient):
 
@@ -20,49 +18,47 @@ class FlowerClient(NumPyClient):
         train_loader,
         test_loader,
         target_delta,
-        noise_multiplier,
+        target_epsilon,
         max_grad_norm,
         partition_id,
         context,
     ) -> None:
         super().__init__()
-        self.model = train.EmbeddingClassifier(
-            input_size=parameters_federated.EMBEDDING_DIM,
-            hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
-            num_classes=parameters_federated.NUM_CLASSES,
-        )
+    
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.target_delta = target_delta
-        self.noise_multiplier = noise_multiplier
+        self.target_epsilon = target_epsilon
         self.max_grad_norm = max_grad_norm
         self.partition_id = int(partition_id)
         self.context = context
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        
+        self.embedding_model, self.embedding_dim = train.define_foundation_extractor(
+        parameters_federated.FOUNDATION_MODEL,
+        self.device,
+        )
 
-        # Same frozen MLP extractor on every client and on the server.
-        self.embedding_model = train.build_embedding_extractor(self.device)
+        self.model = train.EmbeddingClassifier(
+            input_size=self.embedding_dim,
+            num_classes=parameters_federated.NUM_CLASSES,
+        )
+    
+    def get_parameters(self, config):
+        return train.get_weights(self.model)
+
 
     def _synthetic_cache_path(self) -> Path:
         cache_dir = Path(parameters_federated.SYNTHETIC_CACHE_DIR)
         return cache_dir / f"client_{self.partition_id}_synthetic.pt"
 
     def _extractor_signature(self) -> dict:
-        """Small signature used to avoid reusing stale synthetic-embedding caches."""
-        path_str = getattr(parameters_federated, "EMBEDDING_EXTRACTOR_PATH", None)
-        path = Path(path_str) if path_str else None
-        sig = {
-            "embedding_extractor_path": str(path) if path is not None else None,
-            "embedding_dim": parameters_federated.EMBEDDING_DIM,
-            "embedding_hidden_size": parameters_federated.EMBEDDING_HIDDEN_SIZE,
-            "pretrain_ratio": parameters_federated.PRETRAIN_RATIO,
-            "data_split_seed": parameters_federated.DATA_SPLIT_SEED,
-        }
-        if path is not None and path.exists():
-            stat = path.stat()
-            sig["extractor_mtime_ns"] = stat.st_mtime_ns
-            sig["extractor_size_bytes"] = stat.st_size
-        return sig
+        return {
+        "foundation_model": parameters_federated.FOUNDATION_MODEL,
+        "foundation_image_size": parameters_federated.FOUNDATION_IMAGE_SIZE,
+        "embedding_dim": self.embedding_dim,
+        "embedding_hidden_size": parameters_federated.EMBEDDING_HIDDEN_SIZE,
+    }
 
     def _expected_cache_metadata(self) -> dict:
         metadata = {
@@ -71,8 +67,6 @@ class FlowerClient(NumPyClient):
             "num_real_train_examples": len(self.train_loader.dataset),
             "partitioner": parameters_federated.PARTITIONER,
             "dirichlet_alpha": parameters_federated.DIRICHLET_ALPHA,
-            "synthetic_multiplier": parameters_federated.SYNTHETIC_MULTIPLIER,
-            "label_mode": parameters_federated.SYNTHETIC_LABEL_MODE,
             "use_local_dp_cvae": parameters_federated.USE_LOCAL_DP_CVAE,
             "target_epsilon": parameters_federated.TARGET_EPSILON,
             "target_delta": self.target_delta,
@@ -135,7 +129,7 @@ class FlowerClient(NumPyClient):
             real_embeddings,
             real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
-            input_dim=parameters_federated.EMBEDDING_DIM,
+            input_dim=self.embedding_dim,
             hidden_dim=parameters_federated.CVAE_HIDDEN_DIM,
             latent_dim=parameters_federated.CVAE_LATENT_DIM,
             batch_size=parameters_federated.CVAE_BATCH_SIZE,
@@ -186,28 +180,30 @@ class FlowerClient(NumPyClient):
         return synthetic_loader, epsilon, cvae_loss, len(synthetic_labels)
 
     def fit(self, parameters, config):
-        # Recebe pesos globais do classificador federado.
         train.set_weights(self.model, parameters)
         self.model.to(self.device)
 
-        # CVAE local gera/carrega embeddings sintéticos privados.
         synthetic_loader, epsilon, cvae_loss, num_synthetic = self._build_or_load_synthetic_loader()
 
-        # FedAvg será feito sobre este classificador treinado nos sintéticos.
         optimizer = torch.optim.Adam(self.model.parameters(), lr=parameters_federated.LR)
-        train.train_embedding_classifier(
+
+        train.train(
             self.model,
             synthetic_loader,
             optimizer,
+            self.target_delta,
             device=self.device,
+            privacy_engine=None,
             epochs=parameters_federated.EPOCHS,
         )
 
         metrics = {
             "num_synthetic": float(num_synthetic),
         }
+
         if epsilon is not None:
-            metrics["epsilon-dp-cvae"] = float(epsilon)
+            metrics["epsilon_cvae"] = float(epsilon)
+
         if cvae_loss is not None:
             metrics["cvae_loss"] = float(cvae_loss)
 
@@ -235,7 +231,7 @@ def client_fn(context: Context):
         train_loader,
         test_loader,
         parameters_federated.TARGET_DELTA,
-        parameters_federated.NOISE_MULTIPLIER,
+        parameters_federated.TARGET_EPSILON,
         parameters_federated.MAX_GRAD_NORM,
         partition_id,
         context,

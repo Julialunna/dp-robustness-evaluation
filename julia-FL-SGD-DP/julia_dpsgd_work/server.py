@@ -52,7 +52,9 @@ def get_evaluate_fn(testloader):
             num_classes=parameters_federated.NUM_CLASSES,
         )
         train.set_weights(model, parameters)
-        embedding_model = train.build_embedding_extractor(device)
+        embedding_model, _ = train.define_foundation_extractor(
+        parameters_federated.FOUNDATION_MODEL,
+        device,)
 
         clean_embeddings, clean_labels = train.extract_embeddings_from_loader(
             embedding_model,
@@ -67,7 +69,7 @@ def get_evaluate_fn(testloader):
             shuffle=False,
         )
     
-        loss_clean, accuracy_clean = train.test_embedding_classifier_on_loader(
+        loss_clean, accuracy_clean = train.test(
             model,
             clean_eval_loader,
             device,
@@ -184,8 +186,8 @@ def fit_metrics_aggregation_fn(metrics):
     epsilons = []
     cvae_losses = []
     for _, m in metrics:
-        if "epsilon-dp-cvae" in m:
-            epsilons.append(m["epsilon-dp-cvae"])
+        if "epsilon_cvae" in m:
+            epsilons.append(m["epsilon_cvae"])
         if "cvae_loss" in m:
             cvae_losses.append(m["cvae_loss"])
 
@@ -210,7 +212,7 @@ def server_fn(context: Context) -> ServerAppComponents:
         )
     )
     parameters = ndarrays_to_parameters(ndarrays)
-    testloader = train.get_test_loader("ylecun/mnist")
+    testloader = get_test_loader("ylecun/mnist")
 
     strategy = FedAvg(
         fraction_fit=parameters_federated.FRACTION_FIT,
