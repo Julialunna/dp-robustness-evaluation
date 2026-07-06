@@ -8,3 +8,5 @@ huggingface_hub
 httpx
 opacus
 numpy
+pandas
+matplotlib

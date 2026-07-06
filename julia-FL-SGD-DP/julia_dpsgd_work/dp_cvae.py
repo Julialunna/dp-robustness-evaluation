@@ -11,9 +11,10 @@ from opacus import PrivacyEngine
 from opacus.validators import ModuleValidator
 from torch.utils.data import DataLoader, TensorDataset
 import parameters_federated
+import train
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+device = train.get_device()
 #configuração dataset 
 # MNIST = 28. MedMNIST tem variantes 28/64/128/22d4       
 NUM_CLASSES = parameters_federated.NUM_CLASSES    
@@ -202,10 +203,7 @@ def train_local_dp_cvae(
     max_grad_norm: float,
     device: torch.device,
 ) -> DPCVAETrainResult:
-    """Train one local CVAE on one client's embeddings.
 
-    This is local only: no CVAE weights are sent to the server.
-    """
     dataset = TensorDataset(embeddings.float(), labels.long())
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
 

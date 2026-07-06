@@ -1,5 +1,3 @@
-"""Flower server for FL classifier trained on local DP-CVAE synthetic embeddings."""
-
 import logging
 from typing import List, Tuple
 
@@ -9,13 +7,71 @@ from flwr.common import Context, Metrics, NDArrays, ndarrays_to_parameters
 from flwr.server import ServerApp, ServerAppComponents, ServerConfig
 from flwr.server.strategy import FedAvg
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, Normalize, ToTensor
+from torchvision.transforms import Compose, ToTensor
+import csv
+from pathlib import Path
 
 import parameters_federated
 import train
 
 logging.getLogger("flwr").setLevel(logging.INFO)
 
+def save_global_metrics(server_round, loss, accuracy):
+    path = Path("artifacts/global_metrics.csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_exists = path.exists()
+
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["round", "global_loss", "global_accuracy"],
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(
+            {
+                "round": server_round,
+                "global_loss": loss,
+                "global_accuracy": accuracy,
+            }
+        )
+
+def save_final_accuracy_metrics(
+    accuracy_clean,
+    accuracy_noisy1,
+    accuracy_noisy2,
+    accuracy_noisy3,
+):
+    path = Path("artifacts/final_accuracy_metrics.csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_exists = path.exists()
+
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "accuracy_clean",
+                "accuracy_noisy1",
+                "accuracy_noisy2",
+                "accuracy_noisy3",
+            ],
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(
+            {
+                "accuracy_clean": accuracy_clean,
+                "accuracy_noisy1": accuracy_noisy1,
+                "accuracy_noisy2": accuracy_noisy2,
+                "accuracy_noisy3": accuracy_noisy3,
+            }
+        )
 
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
@@ -45,7 +101,7 @@ def get_evaluate_fn(testloader):
 
     def evaluate(server_round: int, parameters: NDArrays, config: dict):
         
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = train.get_device() 
         model = train.EmbeddingClassifier(
             input_size=parameters_federated.EMBEDDING_DIM,
             hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
@@ -77,6 +133,7 @@ def get_evaluate_fn(testloader):
         
         
         
+        save_global_metrics(server_round, loss_clean, accuracy_clean)
         if server_round == parameters_federated.NUM_SERVER_ROUNDS:  
 
             noisy_embeddings1, noisy_labels1 = train.extract_embeddings_from_loader(
@@ -141,14 +198,20 @@ def get_evaluate_fn(testloader):
                 device,
             ) 
             print(
+                f"USE_DP: {parameters_federated.USE_LOCAL_DP_CVAE} | PARTITIONER: {parameters_federated.PARTITIONER} | EPSILON: {parameters_federated.TARGET_EPSILON} | ALPHA: {parameters_federated.DIRICHLET_ALPHA} | MODEL: {parameters_federated.FOUNDATION_MODEL} | CVAE_LATENT_DIM: {parameters_federated.CVAE_LATENT_DIM} |  CVAE_EPOCHS: {parameters_federated.CVAE_EPOCHS} | CVAE_LR: {parameters_federated.CVAE_LR} | CVAE_BETA: {parameters_federated.CVAE_BETA}"
                 f"[Servidor] Avaliação final | "
                 f"limpo: acc={accuracy_clean * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD1}: acc={accuracy_noisy1 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: acc={accuracy_noisy2 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: acc={accuracy_noisy3 * 100:.2f}%"
+                
 )
+            save_final_accuracy_metrics(
+                accuracy_clean,
+                accuracy_noisy1,
+                accuracy_noisy2,
+                accuracy_noisy3,)
             print(f"{accuracy_clean}  {accuracy_noisy1}  {accuracy_noisy2}  {accuracy_noisy3}")
-            
             return loss_clean, {
                 "global_accuracy": accuracy_clean,
                 "eval_noise_std_1": parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,

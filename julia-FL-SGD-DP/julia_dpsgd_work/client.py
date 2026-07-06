@@ -32,7 +32,7 @@ class FlowerClient(NumPyClient):
         self.max_grad_norm = max_grad_norm
         self.partition_id = int(partition_id)
         self.context = context
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = train.get_device()
         
         self.embedding_model, self.embedding_dim = train.define_foundation_extractor(
         parameters_federated.FOUNDATION_MODEL,
@@ -124,7 +124,10 @@ class FlowerClient(NumPyClient):
             self.device,
         )
 
-        print(f"[Cliente {self.partition_id}] Treinando CVAE local com DP-SGD...")
+        if parameters_federated.USE_LOCAL_DP_CVAE:
+            print(f"[Cliente {self.partition_id}] Treinando CVAE local com DP-SGD...")
+        else:
+            print(f"[Cliente {self.partition_id}] Treinando CVAE local sem DP...")
         result = dp_cvae.train_local_dp_cvae(
             real_embeddings,
             real_labels,

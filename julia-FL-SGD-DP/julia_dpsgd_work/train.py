@@ -3,14 +3,13 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, Normalize, ToTensor
+from torchvision.transforms import Compose, ToTensor
 
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
 
 import parameters_federated
 import torch.nn.functional as F
-
 
 from torchvision.models import (
     efficientnet_b0,
@@ -21,6 +20,12 @@ from torchvision.models import (
 
 fds = None
 
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 def define_foundation_extractor(model_name: str, device: torch.device):
     if model_name == "efficientnet_b0":
@@ -102,7 +107,7 @@ def extract_embeddings_from_loader(
     generator = None
     if image_noise_seed is not None:
         #gerador de números aleatórios com seed fixa
-        generator = torch.Generator(device=device).manual_seed(image_noise_seed)
+        generator = torch.Generator().manual_seed(image_noise_seed)
 
     embeddings_list = []
     labels_list = []
@@ -115,9 +120,8 @@ def extract_embeddings_from_loader(
             noise = torch.randn(
                 images.shape,
                 generator=generator,
-                device=device,
                 dtype=images.dtype,
-            )
+            ).to(device)
             images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
         images = preprocess_image(

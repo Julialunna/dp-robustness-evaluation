@@ -1,16 +1,15 @@
-"""Run Flower simulation for the DP-CVAE-local + FL-classifier pipeline.
-
-Before Flower starts, this script optionally pretrains the frozen MLP embedding
-extractor on the public/auxiliary 10% MNIST split. The remaining 90% is used by
-clients only.
-"""
-
 from flwr.simulation import run_simulation
-from server import ServerApp, server_fn
-from client import ClientApp, client_fn
+from flwr.server import ServerApp
+from flwr.client import ClientApp
+
+from server import server_fn
+from client import client_fn
 
 import parameters_federated
-import train
+
+import parameters_federated
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 client_resources = {
@@ -30,3 +29,19 @@ hist = run_simulation(
     num_supernodes=parameters_federated.NUM_PARTITIONS,
     backend_config={"client_resources": client_resources},
 )
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("artifacts/global_metrics.csv")
+
+Path("artifacts").mkdir(parents=True, exist_ok=True)
+
+plt.plot(df["round"], df["global_loss"], marker="o")
+plt.xlabel("Rodada")
+plt.ylabel("Loss global")
+plt.title("Loss global por rodada")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("artifacts/global_loss.png", dpi=300)
+plt.close()
