@@ -52,6 +52,10 @@ class FlowerClient(NumPyClient):
         cache_dir = Path(parameters_federated.SYNTHETIC_CACHE_DIR)
         return cache_dir / f"client_{self.partition_id}_synthetic.pt"
 
+    def _test_embedding_cache_path(self) -> Path:
+        cache_dir = Path("artifacts/test_embeddings")
+        return cache_dir / f"client_{self.partition_id}_test.pt"
+
     def _extractor_signature(self) -> dict:
         return {
         "foundation_model": parameters_federated.FOUNDATION_MODEL,
@@ -75,6 +79,18 @@ class FlowerClient(NumPyClient):
             "cvae_latent_dim": parameters_federated.CVAE_LATENT_DIM,
             "cvae_epochs": parameters_federated.CVAE_EPOCHS,
             "cvae_beta": parameters_federated.CVAE_BETA,
+        }
+        metadata.update(self._extractor_signature())
+        return metadata
+
+    def _test_embedding_metadata(self) -> dict:
+        metadata = {
+            "cache_version": 1,
+            "partition_id": self.partition_id,
+            "num_test_examples": len(self.test_loader.dataset),
+            "partitioner": parameters_federated.PARTITIONER,
+            "dirichlet_alpha": parameters_federated.DIRICHLET_ALPHA,
+            "split_seed": 42,
         }
         metadata.update(self._extractor_signature())
         return metadata
@@ -182,6 +198,16 @@ class FlowerClient(NumPyClient):
         )
         return synthetic_loader, epsilon, cvae_loss, len(synthetic_labels)
 
+    def _build_or_load_test_embedding_loader(self):
+        return train.build_or_load_embedding_loader(
+            self._test_embedding_cache_path(),
+            self.embedding_model,
+            self.test_loader,
+            self.device,
+            self._test_embedding_metadata(),
+            parameters_federated.BATCH_SIZE,
+        )
+
     def fit(self, parameters, config):
         train.set_weights(self.model, parameters)
         self.model.to(self.device)
@@ -214,10 +240,10 @@ class FlowerClient(NumPyClient):
 
     def evaluate(self, parameters, config):
         train.set_weights(self.model, parameters)
-        loss, accuracy = train.test_embedding_classifier_from_images(
+        test_embedding_loader = self._build_or_load_test_embedding_loader()
+        loss, accuracy = train.test(
             self.model,
-            self.embedding_model,
-            self.test_loader,
+            test_embedding_loader,
             self.device,
         )
         return loss, len(self.test_loader.dataset), {"accuracy": accuracy}

@@ -10,11 +10,30 @@ import parameters_federated
 import parameters_federated
 import matplotlib.pyplot as plt
 from pathlib import Path
+import torch 
+import shutil
+
+
+def clear_cache_on_start():
+    
+  
+    synthetic_cache = Path(parameters_federated.SYNTHETIC_CACHE_DIR)
+    if synthetic_cache.exists():
+        shutil.rmtree(synthetic_cache)
+        print(f"Cache sintético apagado: {synthetic_cache}")
+
+    test_cache = Path("artifacts/test_embeddings")
+    if test_cache.exists():
+        shutil.rmtree(test_cache)
+        print(f"Cache de teste apagado: {test_cache}")
+
+
+clear_cache_on_start()
 
 
 client_resources = {
     "num_cpus": 2,
-    "num_gpus": 0.0,  # Troque para >0 se quiser alocar GPU por cliente.
+    "num_gpus": 1.0 if torch.cuda.is_available() else 0.0,
 }
 
 # Important: create/load the public-pretrained extractor before clients/server

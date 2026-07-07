@@ -39,40 +39,6 @@ def save_global_metrics(server_round, loss, accuracy):
             }
         )
 
-def save_final_accuracy_metrics(
-    accuracy_clean,
-    accuracy_noisy1,
-    accuracy_noisy2,
-    accuracy_noisy3,
-):
-    path = Path("artifacts/final_accuracy_metrics.csv")
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    file_exists = path.exists()
-
-    with path.open("a", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "accuracy_clean",
-                "accuracy_noisy1",
-                "accuracy_noisy2",
-                "accuracy_noisy3",
-            ],
-        )
-
-        if not file_exists:
-            writer.writeheader()
-
-        writer.writerow(
-            {
-                "accuracy_clean": accuracy_clean,
-                "accuracy_noisy1": accuracy_noisy1,
-                "accuracy_noisy2": accuracy_noisy2,
-                "accuracy_noisy3": accuracy_noisy3,
-            }
-        )
-
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
     examples = [num_examples for num_examples, _ in metrics]
@@ -95,9 +61,41 @@ def get_test_loader(dataset_str: str):
     return DataLoader(test_data, batch_size=parameters_federated.BATCH_SIZE)
 
 
+def server_embedding_metadata(testloader, image_noise_std):
+    return {
+        "cache_version": 1,
+        "dataset": "ylecun/mnist",
+        "num_test_examples": len(testloader.dataset),
+        "foundation_model": parameters_federated.FOUNDATION_MODEL,
+        "foundation_image_size": parameters_federated.FOUNDATION_IMAGE_SIZE,
+        "embedding_dim": parameters_federated.EMBEDDING_DIM,
+        "image_noise_std": image_noise_std,
+        "image_noise_seed": parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
+    }
+
+
+def get_cached_server_embedding_loader(
+    embedding_model,
+    testloader,
+    device,
+    image_noise_std,
+    cache_name,
+):
+    return train.build_or_load_embedding_loader(
+        Path("artifacts/test_embeddings") / cache_name,
+        embedding_model,
+        testloader,
+        device,
+        server_embedding_metadata(testloader, image_noise_std),
+        parameters_federated.BATCH_SIZE,
+        image_noise_std=image_noise_std,
+        image_noise_seed=parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
+    )
+
 
 
 def get_evaluate_fn(testloader):
+    embedding_models = {}
 
     def evaluate(server_round: int, parameters: NDArrays, config: dict):
         
@@ -108,21 +106,20 @@ def get_evaluate_fn(testloader):
             num_classes=parameters_federated.NUM_CLASSES,
         )
         train.set_weights(model, parameters)
-        embedding_model, _ = train.define_foundation_extractor(
-        parameters_federated.FOUNDATION_MODEL,
-        device,)
+        device_key = str(device)
+        if device_key not in embedding_models:
+            embedding_models[device_key], _ = train.define_foundation_extractor(
+                parameters_federated.FOUNDATION_MODEL,
+                device,
+            )
+        embedding_model = embedding_models[device_key]
 
-        clean_embeddings, clean_labels = train.extract_embeddings_from_loader(
+        clean_eval_loader = get_cached_server_embedding_loader(
             embedding_model,
             testloader,
             device,
-            image_noise_std=0.0,
-        )
-        clean_eval_loader = train.make_embedding_loader(
-            clean_embeddings,
-            clean_labels,
-            batch_size=parameters_federated.BATCH_SIZE,
-            shuffle=False,
+            0.0,
+            "server_clean_test.pt",
         )
     
         loss_clean, accuracy_clean = train.test(
@@ -133,22 +130,14 @@ def get_evaluate_fn(testloader):
         
         
         
-        save_global_metrics(server_round, loss_clean, accuracy_clean)
         if server_round == parameters_federated.NUM_SERVER_ROUNDS:  
 
-            noisy_embeddings1, noisy_labels1 = train.extract_embeddings_from_loader(
+            noisy_eval_loader1 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
                 device,
-                image_noise_std=parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,
-                image_noise_seed=parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
-            )
-
-            noisy_eval_loader1 = train.make_embedding_loader(
-                noisy_embeddings1,
-                noisy_labels1,
-                batch_size=parameters_federated.BATCH_SIZE,
-                shuffle=False,
+                parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,
+                "server_noise_1_test.pt",
             )
             loss_noisy1, accuracy_noisy1 = train.test(
                 model,
@@ -156,20 +145,12 @@ def get_evaluate_fn(testloader):
                 device,
             ) 
             
-            noisy_embeddings2, noisy_labels2 = train.extract_embeddings_from_loader(
+            noisy_eval_loader2 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
                 device,
-                image_noise_std=parameters_federated.EVAL_GAUSSIAN_NOISE_STD2,
-                image_noise_seed=parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
-            )
-
-
-            noisy_eval_loader2 = train.make_embedding_loader(
-                noisy_embeddings2,
-                noisy_labels2,
-                batch_size=parameters_federated.BATCH_SIZE,
-                shuffle=False,
+                parameters_federated.EVAL_GAUSSIAN_NOISE_STD2,
+                "server_noise_2_test.pt",
             )
             loss_noisy2, accuracy_noisy2 = train.test(
                 model,
@@ -177,41 +158,28 @@ def get_evaluate_fn(testloader):
                 device,
             ) 
             
-            noisy_embeddings3, noisy_labels3 = train.extract_embeddings_from_loader(
+            noisy_eval_loader3 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
                 device,
-                image_noise_std=parameters_federated.EVAL_GAUSSIAN_NOISE_STD3,
-                image_noise_seed=parameters_federated.EVAL_GAUSSIAN_NOISE_SEED,
-            )
-
-
-            noisy_eval_loader3 = train.make_embedding_loader(
-                noisy_embeddings3,
-                noisy_labels3,
-                batch_size=parameters_federated.BATCH_SIZE,
-                shuffle=False,
+                parameters_federated.EVAL_GAUSSIAN_NOISE_STD3,
+                "server_noise_3_test.pt",
             )
             loss_noisy3, accuracy_noisy3 = train.test(
                 model,
                 noisy_eval_loader3,
                 device,
             ) 
+            print(f"MODEL: {parameters_federated.FOUNDATION_MODEL} | EPSILON: {parameters_federated.TARGET_EPSILON}| BETA: {parameters_federated.CVAE_BETA} | HIDDEN: {parameters_federated.CVAE_HIDDEN_DIM} | LATENT: {parameters_federated.CVAE_LATENT_DIM} | CVAE_EPOCHS: {parameters_federated.CVAE_EPOCHS} | CVAE_LR: {parameters_federated.CVAE_LR}")
             print(
-                f"USE_DP: {parameters_federated.USE_LOCAL_DP_CVAE} | PARTITIONER: {parameters_federated.PARTITIONER} | EPSILON: {parameters_federated.TARGET_EPSILON} | ALPHA: {parameters_federated.DIRICHLET_ALPHA} | MODEL: {parameters_federated.FOUNDATION_MODEL} | CVAE_LATENT_DIM: {parameters_federated.CVAE_LATENT_DIM} |  CVAE_EPOCHS: {parameters_federated.CVAE_EPOCHS} | CVAE_LR: {parameters_federated.CVAE_LR} | CVAE_BETA: {parameters_federated.CVAE_BETA}"
                 f"[Servidor] Avaliação final | "
                 f"limpo: acc={accuracy_clean * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD1}: acc={accuracy_noisy1 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: acc={accuracy_noisy2 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: acc={accuracy_noisy3 * 100:.2f}%"
-                
 )
-            save_final_accuracy_metrics(
-                accuracy_clean,
-                accuracy_noisy1,
-                accuracy_noisy2,
-                accuracy_noisy3,)
             print(f"{accuracy_clean}  {accuracy_noisy1}  {accuracy_noisy2}  {accuracy_noisy3}")
+            save_global_metrics(server_round, loss_clean, accuracy_clean)
             return loss_clean, {
                 "global_accuracy": accuracy_clean,
                 "eval_noise_std_1": parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,

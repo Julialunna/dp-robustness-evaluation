@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -107,7 +108,7 @@ def extract_embeddings_from_loader(
     generator = None
     if image_noise_seed is not None:
         #gerador de números aleatórios com seed fixa
-        generator = torch.Generator().manual_seed(image_noise_seed)
+        generator = torch.Generator(device="cpu").manual_seed(image_noise_seed)
 
     embeddings_list = []
     labels_list = []
@@ -120,6 +121,7 @@ def extract_embeddings_from_loader(
             noise = torch.randn(
                 images.shape,
                 generator=generator,
+                device="cpu",
                 dtype=images.dtype,
             ).to(device)
             images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
@@ -135,6 +137,54 @@ def extract_embeddings_from_loader(
         labels_list.append(labels.cpu())
 
     return torch.cat(embeddings_list, dim=0), torch.cat(labels_list, dim=0)
+
+
+def build_or_load_embedding_loader(
+    cache_path,
+    foundation_model,
+    image_loader,
+    device,
+    metadata,
+    batch_size,
+    image_noise_std=0.0,
+    image_noise_seed=None,
+):
+    cache_path = Path(cache_path)
+
+    if cache_path.exists():
+        data = torch.load(cache_path, map_location="cpu")
+        if data.get("metadata", {}) == metadata:
+            return make_embedding_loader(
+                data["embeddings"],
+                data["labels"],
+                batch_size=batch_size,
+                shuffle=False,
+            )
+
+    embeddings, labels = extract_embeddings_from_loader(
+        foundation_model,
+        image_loader,
+        device,
+        image_noise_std=image_noise_std,
+        image_noise_seed=image_noise_seed,
+    )
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "embeddings": embeddings.cpu(),
+            "labels": labels.cpu(),
+            "metadata": metadata,
+        },
+        cache_path,
+    )
+
+    return make_embedding_loader(
+        embeddings,
+        labels,
+        batch_size=batch_size,
+        shuffle=False,
+    )
 
 class EmbeddingClassifier(nn.Module):
     def __init__(self, input_size, hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE, num_classes=10, dropout=0.2):
@@ -196,7 +246,7 @@ def load_data(partition_id: int, num_partitions: int):
         )
 
     partition = fds.load_partition(partition_id)
-    partition_train_test = partition.train_test_split(test_size=0.2)
+    partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
 
     pytorch_transforms = Compose([
         ToTensor()
