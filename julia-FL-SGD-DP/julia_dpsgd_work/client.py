@@ -139,13 +139,17 @@ class FlowerClient(NumPyClient):
             self.train_loader,
             self.device,
         )
+        emb_mean = real_embeddings.mean(dim=0, keepdim=True)
+        emb_std = real_embeddings.std(dim=0, keepdim=True).clamp_min(1e-6)
+
+        real_embeddings_norm = (real_embeddings - emb_mean) / emb_std
 
         if parameters_federated.USE_LOCAL_DP_CVAE:
             print(f"[Cliente {self.partition_id}] Treinando CVAE local com DP-SGD...")
         else:
             print(f"[Cliente {self.partition_id}] Treinando CVAE local sem DP...")
         result = dp_cvae.train_local_dp_cvae(
-            real_embeddings,
+            real_embeddings_norm,
             real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
             input_dim=self.embedding_dim,
@@ -162,13 +166,14 @@ class FlowerClient(NumPyClient):
             device=self.device,
         )
 
-        synthetic_embeddings, synthetic_labels = dp_cvae.generate_synthetic_embeddings(
+        synthetic_embeddings_norm, synthetic_labels = dp_cvae.generate_synthetic_embeddings(
             result.model,
             real_labels=real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
             latent_dim=parameters_federated.CVAE_LATENT_DIM,
             device=self.device,
         )
+        synthetic_embeddings = synthetic_embeddings_norm * emb_std + emb_mean
 
         epsilon = result.epsilon
         cvae_loss = result.final_loss
