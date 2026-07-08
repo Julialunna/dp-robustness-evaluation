@@ -1,4 +1,7 @@
+import csv
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import List, Tuple
 
 import torch
@@ -8,36 +11,126 @@ from flwr.server import ServerApp, ServerAppComponents, ServerConfig
 from flwr.server.strategy import FedAvg
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor
-import csv
-from pathlib import Path
 
 import parameters_federated
 import train
 
 logging.getLogger("flwr").setLevel(logging.INFO)
 
-def save_global_metrics(server_round, loss, accuracy):
-    path = Path("artifacts/global_metrics.csv")
+RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+LAST_FIT_METRICS = {}
+
+
+def global_metrics_path() -> Path:
+    return Path(getattr(parameters_federated, "GLOBAL_METRICS_PATH", "artifacts/global_metrics.csv"))
+
+
+def experiment_config() -> dict:
+    return {
+        "run_id": RUN_ID,
+        "foundation_model": parameters_federated.FOUNDATION_MODEL,
+        "foundation_image_size": parameters_federated.FOUNDATION_IMAGE_SIZE,
+        "embedding_dim": parameters_federated.EMBEDDING_DIM,
+        "embedding_hidden_size": parameters_federated.EMBEDDING_HIDDEN_SIZE,
+        "embedding_normalization": "per_client_standardization",
+        "num_partitions": parameters_federated.NUM_PARTITIONS,
+        "num_server_rounds": parameters_federated.NUM_SERVER_ROUNDS,
+        "fraction_fit": parameters_federated.FRACTION_FIT,
+        "fraction_evaluate": parameters_federated.FRACTION_EVALUATE,
+        "partitioner": parameters_federated.PARTITIONER,
+        "dirichlet_alpha": parameters_federated.DIRICHLET_ALPHA,
+        "batch_size": parameters_federated.BATCH_SIZE,
+        "classifier_epochs": parameters_federated.EPOCHS,
+        "classifier_lr": parameters_federated.LR,
+        "num_classes": parameters_federated.NUM_CLASSES,
+        "use_local_dp_cvae": parameters_federated.USE_LOCAL_DP_CVAE,
+        "target_delta": parameters_federated.TARGET_DELTA,
+        "target_epsilon": parameters_federated.TARGET_EPSILON,
+        "max_grad_norm": parameters_federated.MAX_GRAD_NORM,
+        "cvae_hidden_dim": parameters_federated.CVAE_HIDDEN_DIM,
+        "cvae_latent_dim": parameters_federated.CVAE_LATENT_DIM,
+        "cvae_batch_size": parameters_federated.CVAE_BATCH_SIZE,
+        "cvae_epochs": parameters_federated.CVAE_EPOCHS,
+        "cvae_lr": parameters_federated.CVAE_LR,
+        "cvae_beta": parameters_federated.CVAE_BETA,
+        "synthetic_cache_version": parameters_federated.SYNTHETIC_CACHE_VERSION,
+        "force_regenerate_synthetics": parameters_federated.FORCE_REGENERATE_SYNTHETICS,
+        "retrain_cvae_every_round": parameters_federated.RETRAIN_CVAE_EVERY_ROUND,
+    }
+
+
+def global_metrics_fieldnames() -> list:
+    return [
+        "run_id",
+        "round",
+        "foundation_model",
+        "foundation_image_size",
+        "embedding_dim",
+        "embedding_hidden_size",
+        "embedding_normalization",
+        "num_partitions",
+        "num_server_rounds",
+        "fraction_fit",
+        "fraction_evaluate",
+        "partitioner",
+        "dirichlet_alpha",
+        "batch_size",
+        "classifier_epochs",
+        "classifier_lr",
+        "num_classes",
+        "use_local_dp_cvae",
+        "target_delta",
+        "target_epsilon",
+        "max_grad_norm",
+        "cvae_hidden_dim",
+        "cvae_latent_dim",
+        "cvae_batch_size",
+        "cvae_epochs",
+        "cvae_lr",
+        "cvae_beta",
+        "synthetic_cache_version",
+        "force_regenerate_synthetics",
+        "retrain_cvae_every_round",
+        "epsilon_cvae_mean",
+        "cvae_loss_mean",
+        "global_loss",
+        "global_accuracy",
+        "eval_noise_std_1",
+        "global_loss_noisy_1",
+        "global_accuracy_noisy_1",
+        "accuracy_drop_noise_1",
+        "eval_noise_std_2",
+        "global_loss_noisy_2",
+        "global_accuracy_noisy_2",
+        "accuracy_drop_noise_2",
+        "eval_noise_std_3",
+        "global_loss_noisy_3",
+        "global_accuracy_noisy_3",
+        "accuracy_drop_noise_3",
+    ]
+
+
+def save_global_metrics(server_round, loss, accuracy, extra_metrics=None):
+    path = global_metrics_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-
     file_exists = path.exists()
-
+    row = experiment_config()
+    row.update(LAST_FIT_METRICS)
+    row.update(
+        {
+            "round": server_round,
+            "global_loss": loss,
+            "global_accuracy": accuracy,
+        }
+    )
+    if extra_metrics:
+        row.update(extra_metrics)
     with path.open("a", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["round", "global_loss", "global_accuracy"],
-        )
-
+        writer = csv.DictWriter(f, fieldnames=global_metrics_fieldnames(), extrasaction="ignore")
         if not file_exists:
             writer.writeheader()
+        writer.writerow(row)
 
-        writer.writerow(
-            {
-                "round": server_round,
-                "global_loss": loss,
-                "global_accuracy": accuracy,
-            }
-        )
 
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
@@ -49,9 +142,7 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 
 def get_test_loader(dataset_str: str):
     dataset = load_dataset(dataset_str)
-    pytorch_transforms = Compose(
-        [ToTensor()]
-    )
+    pytorch_transforms = Compose([ToTensor()])
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(img) for img in batch["image"]]
@@ -93,13 +184,11 @@ def get_cached_server_embedding_loader(
     )
 
 
-
 def get_evaluate_fn(testloader):
     embedding_models = {}
 
     def evaluate(server_round: int, parameters: NDArrays, config: dict):
-        
-        device = train.get_device() 
+        device = train.get_device()
         model = train.EmbeddingClassifier(
             input_size=parameters_federated.EMBEDDING_DIM,
             hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
@@ -121,17 +210,14 @@ def get_evaluate_fn(testloader):
             0.0,
             "server_clean_test.pt",
         )
-    
+
         loss_clean, accuracy_clean = train.test(
             model,
             clean_eval_loader,
             device,
         )
-        
-        
-        
-        if server_round == parameters_federated.NUM_SERVER_ROUNDS:  
 
+        if server_round == parameters_federated.NUM_SERVER_ROUNDS:
             noisy_eval_loader1 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
@@ -143,8 +229,8 @@ def get_evaluate_fn(testloader):
                 model,
                 noisy_eval_loader1,
                 device,
-            ) 
-            
+            )
+
             noisy_eval_loader2 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
@@ -156,8 +242,8 @@ def get_evaluate_fn(testloader):
                 model,
                 noisy_eval_loader2,
                 device,
-            ) 
-            
+            )
+
             noisy_eval_loader3 = get_cached_server_embedding_loader(
                 embedding_model,
                 testloader,
@@ -169,19 +255,9 @@ def get_evaluate_fn(testloader):
                 model,
                 noisy_eval_loader3,
                 device,
-            ) 
-            print(f"MODEL: {parameters_federated.FOUNDATION_MODEL} | EPSILON: {parameters_federated.TARGET_EPSILON}| BETA: {parameters_federated.CVAE_BETA} | HIDDEN: {parameters_federated.CVAE_HIDDEN_DIM} | LATENT: {parameters_federated.CVAE_LATENT_DIM} | CVAE_EPOCHS: {parameters_federated.CVAE_EPOCHS} | CVAE_LR: {parameters_federated.CVAE_LR}")
-            print(
-                f"[Servidor] Avaliação final | "
-                f"limpo: acc={accuracy_clean * 100:.2f}% | "
-                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD1}: acc={accuracy_noisy1 * 100:.2f}% | "
-                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: acc={accuracy_noisy2 * 100:.2f}% | "
-                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: acc={accuracy_noisy3 * 100:.2f}%"
-)
-            print(f"{accuracy_clean}  {accuracy_noisy1}  {accuracy_noisy2}  {accuracy_noisy3}")
-            save_global_metrics(server_round, loss_clean, accuracy_clean)
-            return loss_clean, {
-                "global_accuracy": accuracy_clean,
+            )
+
+            extra_metrics = {
                 "eval_noise_std_1": parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,
                 "eval_noise_std_2": parameters_federated.EVAL_GAUSSIAN_NOISE_STD2,
                 "eval_noise_std_3": parameters_federated.EVAL_GAUSSIAN_NOISE_STD3,
@@ -195,25 +271,35 @@ def get_evaluate_fn(testloader):
                 "global_loss_noisy_2": loss_noisy2,
                 "global_loss_noisy_3": loss_noisy3,
             }
-        else: 
-            
-            print(
-                f"[Servidor] Avaliação global | "
-                f"sem ruído: acc={accuracy_clean * 100:.2f}% | "
-            )
 
+            print(
+                f"[Servidor] Avaliação final | "
+                f"limpo: acc={accuracy_clean * 100:.2f}% | "
+                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD1}: acc={accuracy_noisy1 * 100:.2f}% | "
+                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: acc={accuracy_noisy2 * 100:.2f}% | "
+                f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: acc={accuracy_noisy3 * 100:.2f}%"
+            )
+            print(f"{accuracy_clean}  {accuracy_noisy1}  {accuracy_noisy2}  {accuracy_noisy3}")
+            save_global_metrics(server_round, loss_clean, accuracy_clean, extra_metrics)
             return loss_clean, {
                 "global_accuracy": accuracy_clean,
+                **extra_metrics,
             }
 
-
-
+        print(
+            f"[Servidor] Avaliação global | "
+            f"sem ruído: acc={accuracy_clean * 100:.2f}% | "
+        )
+        save_global_metrics(server_round, loss_clean, accuracy_clean)
+        return loss_clean, {
+            "global_accuracy": accuracy_clean,
+        }
 
     return evaluate
 
 
-
 def fit_metrics_aggregation_fn(metrics):
+    global LAST_FIT_METRICS
     epsilons = []
     cvae_losses = []
     for _, m in metrics:
@@ -231,6 +317,7 @@ def fit_metrics_aggregation_fn(metrics):
         cvae_loss_mean = sum(cvae_losses) / len(cvae_losses)
         aggregated["cvae_loss_mean"] = cvae_loss_mean
         print(f"[Servidor] Loss média dos CVAEs locais: {cvae_loss_mean:.4f}")
+    LAST_FIT_METRICS = aggregated.copy()
     return aggregated
 
 
