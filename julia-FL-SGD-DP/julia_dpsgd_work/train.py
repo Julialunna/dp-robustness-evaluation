@@ -74,7 +74,14 @@ def define_foundation_extractor(model_name: str, device: torch.device):
     return extractor, embedding_dim
 
 #o dinov2 faz center crop, corta para ficar só o centro da imagem, normalmente no ImageNet o objeto está no centro, mas no MEDMNIST pode não estar então não vou fazer center crop, vou só redimensionar para 224x224 e normalizar com os valores do ImageNet
-def preprocess_image(images, device, image_size = 224):
+def resize_to_foundation_input(images, device, image_size=224):
+    """Redimensiona e expande canais, mas MANTÉM a imagem em pixel space [0,1].
+
+    Separado de `normalize_for_foundation` para permitir injetar ruído DEPOIS
+    do resize (na resolução real de entrada do modelo), e não antes, o que
+    antes deixava o upsample bilinear borrar/atenuar o ruído de alta
+    frequência aplicado em 28x28.
+    """
     images = images.to(device).float()
     if images.dim() == 3:
         images = images.unsqueeze(1)
@@ -88,11 +95,21 @@ def preprocess_image(images, device, image_size = 224):
         mode="bilinear",
         align_corners=False,
     )
+    return images
 
+
+def normalize_for_foundation(images, device):
+    """Aplica a normalização ImageNet. Espera imagem já redimensionada e em pixel space [0,1]."""
     imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
     imagenet_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
-
     return (images - imagenet_mean) / imagenet_std
+
+
+def preprocess_image(images, device, image_size=224):
+    """Mantido por compatibilidade (usado quando não há ruído a injetar): resize + normalize."""
+    images = resize_to_foundation_input(images, device, image_size=image_size)
+    return normalize_for_foundation(images, device)
+
 
 @torch.no_grad()
 def extract_embeddings_from_loader(
@@ -117,6 +134,15 @@ def extract_embeddings_from_loader(
         images = batch["image"].to(device)
         labels = batch["label"]
 
+        # 1) Redimensiona ANTES de aplicar ruído: assim o ruído passa a ser
+        #    injetado na resolução real de entrada do modelo fundacional
+        #    (image_size x image_size), e não mais em 28x28 seguido de
+        #    upsample -- o que antes fazia a interpolação bilinear "borrar"
+        #    parte do ruído de alta frequência antes dele chegar ao extrator.
+        images = resize_to_foundation_input(
+            images, device, image_size=parameters_federated.FOUNDATION_IMAGE_SIZE
+        )
+
         if image_noise_std > 0:
             noise = torch.randn(
                 images.shape,
@@ -126,11 +152,8 @@ def extract_embeddings_from_loader(
             ).to(device)
             images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
-        images = preprocess_image(
-            images,
-            device,
-            image_size=parameters_federated.FOUNDATION_IMAGE_SIZE,
-        )
+        # 2) Só então normaliza com as estatísticas do ImageNet.
+        images = normalize_for_foundation(images, device)
 
         embeddings = foundation_model(images)
         embeddings_list.append(embeddings.cpu())
@@ -240,10 +263,16 @@ def load_data(partition_id: int, num_partitions: int):
             )
         else:
             raise ValueError(f"Particionador desconhecido: {parameters_federated.PARTITIONER}")
-        fds = FederatedDataset(
-            dataset="ylecun/mnist",
-            partitioners={"train": partitioner},
-        )
+        if parameters_federated.DATASET == "mnist":
+            fds = FederatedDataset(
+                dataset="ylecun/mnist",
+                partitioners={"train": partitioner},
+            )
+        else:
+            fds = FederatedDataset(
+                dataset=f"danjacobellis/{parameters_federated.DATASET}_224",
+                partitioners={"train": partitioner},
+            )
 
     partition = fds.load_partition(partition_id)
     partition_train_test = partition.train_test_split(test_size=0.2, seed=42)

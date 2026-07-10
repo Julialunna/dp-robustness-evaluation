@@ -125,3 +125,36 @@ MODEL: dinov2_s | EPSILON: 3.0| BETA: 0.01 | HIDDEN: 512 | LATENT: 32 | CVAE_EPO
 MODEL: dinov2_s | EPSILON: 8.0| BETA: 0.01 | HIDDEN: 512 | LATENT: 32 | CVAE_EPOCHS: 10 | CVAE_LR: 0.001
 [Servidor] Avaliação final | limpo: acc=73.67% | ruído σ=0.1: acc=45.94% | ruído σ=0.25: acc=31.25% | ruído σ=0.5: acc=11.82%
 0.7367  0.4594  0.3125  0.1182
+
+--IID--
+
+SEM DP
+
+0.8666  0.356  0.2655  0.1496
+0.8695  0.496  0.3707  0.1662
+0.8747  0.4648  0.3461  0.2048
+
+EPSILON 5
+0.7531  0.597  0.397  0.2104
+0.7449  0.4938  0.3683  0.153
+0.7507  0.5719  0.3869  0.1322
+
+
+
+--NÃO IID--
+SEM DP
+0.8263  0.4441  0.3248  0.1758
+0.8598  0.405  0.2795  0.1415
+0.865  0.371  0.2595  0.1429
+
+EPSILON 5
+0.668  0.475  0.3575  0.1836
+0.7148  0.5282  0.4049  0.1958
+0.6987  0.5815  0.4602  0.2281
+
+
+novo jeito: imgem->redimension->adiciona ruído 
+[Servidor] Avaliação final | limpo: acc=86.35% | ruído σ=0.1: acc=27.94% | ruído σ=0.25: acc=27.75% | ruído σ=0.5: acc=21.83%
+0.8635  0.2794  0.2775  0.2183
+[Servidor] Avaliação final | limpo: acc=73.41% | ruído σ=0.1: acc=59.20% | ruído σ=0.25: acc=60.09% | ruído σ=0.5: acc=28.40%
+0.7341  0.592  0.6009  0.284 
