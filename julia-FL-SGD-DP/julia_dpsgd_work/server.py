@@ -20,6 +20,12 @@ logging.getLogger("flwr").setLevel(logging.INFO)
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 LAST_FIT_METRICS = {}
 
+def get_dataset_name():
+    if parameters_federated.DATASET == "mnist":
+        return "ylecun/mnist"
+
+    return f"danjacobellis/{parameters_federated.DATASET}_224"
+
 
 def global_metrics_path() -> Path:
     return Path(getattr(parameters_federated, "GLOBAL_METRICS_PATH", "artifacts/global_metrics.csv"))
@@ -155,7 +161,7 @@ def get_test_loader(dataset_str: str):
 def server_embedding_metadata(testloader, image_noise_std):
     return {
         "cache_version": 1,
-        "dataset": "ylecun/mnist",
+        "dataset": get_dataset_name(),
         "num_test_examples": len(testloader.dataset),
         "foundation_model": parameters_federated.FOUNDATION_MODEL,
         "foundation_image_size": parameters_federated.FOUNDATION_IMAGE_SIZE,
@@ -330,7 +336,8 @@ def server_fn(context: Context) -> ServerAppComponents:
         )
     )
     parameters = ndarrays_to_parameters(ndarrays)
-    testloader = get_test_loader("ylecun/mnist")
+    dataset_name = get_dataset_name()
+    testloader = get_test_loader(dataset_name)
 
     strategy = FedAvg(
         fraction_fit=parameters_federated.FRACTION_FIT,

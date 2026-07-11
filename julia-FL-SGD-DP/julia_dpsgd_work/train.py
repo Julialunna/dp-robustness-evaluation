@@ -245,6 +245,21 @@ def set_weights(net, parameters):
     params_dict = zip(net.state_dict().keys(), parameters)
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
+    
+def preprocess_dataset(dataset):
+    def flatten_labels(batch):
+        new_labels = []
+
+        for label in batch["label"]:
+            if isinstance(label, list):
+                new_labels.append(int(label[0]))
+            else:
+                new_labels.append(int(label))
+
+        batch["label"] = new_labels
+        return batch
+
+    return dataset.map(flatten_labels, batched=True)
 
 
 def load_data(partition_id: int, num_partitions: int):
@@ -272,7 +287,9 @@ def load_data(partition_id: int, num_partitions: int):
             fds = FederatedDataset(
                 dataset=f"danjacobellis/{parameters_federated.DATASET}_224",
                 partitioners={"train": partitioner},
+                preprocessor=preprocess_dataset,
             )
+            
 
     partition = fds.load_partition(partition_id)
     partition_train_test = partition.train_test_split(test_size=0.2, seed=42)

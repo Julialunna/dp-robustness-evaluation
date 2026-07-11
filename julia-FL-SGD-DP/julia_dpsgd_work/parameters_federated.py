@@ -18,8 +18,8 @@ PARTITIONER = "dirichlet"
 BATCH_SIZE = 256
 EPOCHS = 3
 LR = 0.001
-NUM_CLASSES = 10
-DATASET = "mnist"
+NUM_CLASSES = 9
+DATASET = "pathmnist"
 
 DIRICHLET_ALPHA = 1.0
 
