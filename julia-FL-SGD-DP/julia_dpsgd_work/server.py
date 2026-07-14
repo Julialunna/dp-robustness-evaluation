@@ -172,7 +172,6 @@ def server_embedding_metadata(testloader, image_noise_std):
 
 
 def get_cached_server_embedding_loader(
-    embedding_model,
     testloader,
     device,
     image_noise_std,
@@ -180,7 +179,6 @@ def get_cached_server_embedding_loader(
 ):
     return train.build_or_load_embedding_loader(
         Path("artifacts/test_embeddings") / cache_name,
-        embedding_model,
         testloader,
         device,
         server_embedding_metadata(testloader, image_noise_std),
@@ -191,7 +189,6 @@ def get_cached_server_embedding_loader(
 
 
 def get_evaluate_fn(testloader):
-    embedding_models = {}
 
     def evaluate(server_round: int, parameters: NDArrays, config: dict):
         device = train.get_device()
@@ -201,16 +198,9 @@ def get_evaluate_fn(testloader):
             num_classes=parameters_federated.NUM_CLASSES,
         )
         train.set_weights(model, parameters)
-        device_key = str(device)
-        if device_key not in embedding_models:
-            embedding_models[device_key], _ = train.define_foundation_extractor(
-                parameters_federated.FOUNDATION_MODEL,
-                device,
-            )
-        embedding_model = embedding_models[device_key]
+
 
         clean_eval_loader = get_cached_server_embedding_loader(
-            embedding_model,
             testloader,
             device,
             0.0,
@@ -225,7 +215,6 @@ def get_evaluate_fn(testloader):
 
         if server_round == parameters_federated.NUM_SERVER_ROUNDS:
             noisy_eval_loader1 = get_cached_server_embedding_loader(
-                embedding_model,
                 testloader,
                 device,
                 parameters_federated.EVAL_GAUSSIAN_NOISE_STD1,
@@ -238,7 +227,6 @@ def get_evaluate_fn(testloader):
             )
 
             noisy_eval_loader2 = get_cached_server_embedding_loader(
-                embedding_model,
                 testloader,
                 device,
                 parameters_federated.EVAL_GAUSSIAN_NOISE_STD2,
@@ -251,7 +239,6 @@ def get_evaluate_fn(testloader):
             )
 
             noisy_eval_loader3 = get_cached_server_embedding_loader(
-                embedding_model,
                 testloader,
                 device,
                 parameters_federated.EVAL_GAUSSIAN_NOISE_STD3,

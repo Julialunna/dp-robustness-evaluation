@@ -33,12 +33,6 @@ class FlowerClient(NumPyClient):
         self.partition_id = int(partition_id)
         self.context = context
         self.device = train.get_device()
-        
-        self.embedding_model, self.embedding_dim = train.define_foundation_extractor(
-        parameters_federated.FOUNDATION_MODEL,
-        self.device,
-        )
-
         self.model = train.EmbeddingClassifier(
             input_size=self.embedding_dim,
             num_classes=parameters_federated.NUM_CLASSES,
@@ -135,7 +129,6 @@ class FlowerClient(NumPyClient):
 
         print(f"[Cliente {self.partition_id}] Extraindo embeddings reais locais...")
         real_embeddings, real_labels = train.extract_embeddings_from_loader(
-            self.embedding_model,
             self.train_loader,
             self.device,
         )
@@ -206,7 +199,6 @@ class FlowerClient(NumPyClient):
     def _build_or_load_test_embedding_loader(self):
         return train.build_or_load_embedding_loader(
             self._test_embedding_cache_path(),
-            self.embedding_model,
             self.test_loader,
             self.device,
             self._test_embedding_metadata(),

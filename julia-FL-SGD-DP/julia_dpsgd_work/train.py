@@ -10,16 +10,23 @@ from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
 
 import parameters_federated
+import utils 
 import torch.nn.functional as F
-
-from torchvision.models import (
-    efficientnet_b0,
-    EfficientNet_B0_Weights,
-    mobilenet_v3_small,
-    MobileNet_V3_Small_Weights,
-)
+from torchvision.models import resnet18
+from datasets import DatasetDict
 
 fds = None
+
+# pretrain_mean, pretrain_std = utils.calculate_mean_std(
+#     pretrain_loader
+# )
+
+# trained_resnet = train_embedding_extractor(
+#     train_loader=pretrain_loader,
+#     device=device,
+#     mean=pretrain_mean,
+#     std=pretrain_std,
+# )
 
 def get_device():
     if torch.cuda.is_available():
@@ -28,32 +35,117 @@ def get_device():
         return torch.device("mps")
     return torch.device("cpu")
 
-def define_foundation_extractor(model_name: str, device: torch.device):
-    if model_name == "efficientnet_b0":
-        weights = EfficientNet_B0_Weights.DEFAULT
-        model = efficientnet_b0(weights=weights)
+def define_resnet18_classifier(
+    num_classes: int,
+    device: torch.device,
+) -> nn.Module:
+    model = resnet18(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model.to(device)
 
-        extractor = nn.Sequential(
-            model.features,
-            model.avgpool,
-            nn.Flatten(),
+def normalize_for_pretrained_resnet(
+    images,
+    mean,
+    std,
+    device,
+):
+
+    mean_tensor = torch.tensor(
+        mean,
+        device=device,
+        dtype=images.dtype,
+    )
+
+    std_tensor = torch.tensor(
+        std,
+        device=device,
+        dtype=images.dtype,
+    )
+
+    if mean_tensor.numel() == 1 and images.size(1) == 3:
+        mean_tensor = mean_tensor.repeat(3)
+        std_tensor = std_tensor.repeat(3)
+
+    mean_tensor = mean_tensor.view(1, -1, 1, 1)
+    std_tensor = std_tensor.view(1, -1, 1, 1)
+
+    return (images - mean_tensor) / std_tensor
+
+def train_embedding_extractor(train_loader, mean, std, device, epochs=parameters_federated.PRE_TRAIN_EPOCHS, lr=parameters_federated.PRE_TRAIN_LR):
+    model = define_resnet18_classifier(
+        num_classes=parameters_federated.NUM_CLASSES,
+        device=device,
+    )
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr,  weight_decay=1e-4)
+
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+
+        for batch in train_loader:
+            images = batch["image"].to(
+                device=device,
+                dtype=torch.float32,
+            )
+
+            labels = batch["label"]
+
+            if not torch.is_tensor(labels):
+                labels = torch.tensor(labels)
+
+            labels = labels.to(
+                device=device,
+                dtype=torch.long,
+            ).view(-1)
+
+            if images.dim() == 3:
+                images = images.unsqueeze(1)
+
+            if images.size(1) == 1:
+                images = images.repeat(1, 3, 1, 1)
+
+            images = normalize_for_pretrained_resnet(
+                images,
+                mean,
+                std,
+                device,
+            )
+
+            optimizer.zero_grad()
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item() * labels.size(0)
+
+            predictions = outputs.argmax(dim=1)
+            total_correct += (
+                predictions == labels
+            ).sum().item()
+
+            total_samples += labels.size(0)
+
+        epoch_loss = total_loss / max(total_samples, 1)
+        epoch_accuracy = total_correct / max(total_samples, 1)
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} | "
+            f"loss={epoch_loss:.4f} | "
+            f"accuracy={epoch_accuracy:.4f}"
         )
 
-        embedding_dim = 1280
+    model.eval()
 
-    elif model_name == "mobilenet_v3_small":
-        weights = MobileNet_V3_Small_Weights.DEFAULT
-        model = mobilenet_v3_small(weights=weights)
+    return model
 
-        extractor = nn.Sequential(
-            model.features,
-            model.avgpool,
-            nn.Flatten(),
-        )
-
-        embedding_dim = 576
-
-    elif model_name == "dinov2_s":
+def prepare_foundation_extractor(model_name: str, device: torch.device):
+    if model_name == "dinov2_s":
         extractor = torch.hub.load(
             "facebookresearch/dinov2",
             "dinov2_vits14",
@@ -74,53 +166,47 @@ def define_foundation_extractor(model_name: str, device: torch.device):
     return extractor, embedding_dim
 
 #o dinov2 faz center crop, corta para ficar só o centro da imagem, normalmente no ImageNet o objeto está no centro, mas no MEDMNIST pode não estar então não vou fazer center crop, vou só redimensionar para 224x224 e normalizar com os valores do ImageNet
-def resize_to_foundation_input(images, device, image_size=224):
-    """Redimensiona e expande canais, mas MANTÉM a imagem em pixel space [0,1].
-
-    Separado de `normalize_for_foundation` para permitir injetar ruído DEPOIS
-    do resize (na resolução real de entrada do modelo), e não antes, o que
-    antes deixava o upsample bilinear borrar/atenuar o ruído de alta
-    frequência aplicado em 28x28.
-    """
+def prepare_input_for_dino_vs2(images, device, image_size=224):
     images = images.to(device).float()
     if images.dim() == 3:
         images = images.unsqueeze(1)
     #MNIST tem 1 canal, mas EfficientNet e MobileNet esperam 3 canais, então faço ter 3 
     if images.size(1) == 1:
         images = images.repeat(1, 3, 1, 1)
-    #aumenta o tamanho da imagem para 224x224, que é o tamanho esperado 
-    images = F.interpolate(
-        images,
-        size=(image_size, image_size),
-        mode="bilinear",
-        align_corners=False,
-    )
+        
+    if images.shape[-2:] != (224, 224):
+        raise ValueError(
+            f"dinov2 espera imagens 224x224, "
+            f"mas recebeu {tuple(images.shape[-2:])}"
+        )
     return images
 
 
 def normalize_for_foundation(images, device):
-    """Aplica a normalização ImageNet. Espera imagem já redimensionada e em pixel space [0,1]."""
     imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
     imagenet_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
     return (images - imagenet_mean) / imagenet_std
 
 
 def preprocess_image(images, device, image_size=224):
-    """Mantido por compatibilidade (usado quando não há ruído a injetar): resize + normalize."""
-    images = resize_to_foundation_input(images, device, image_size=image_size)
+    images = prepare_input_for_dino_vs2(images, device, image_size=image_size)
     return normalize_for_foundation(images, device)
 
 
 @torch.no_grad()
 def extract_embeddings_from_loader(
-    foundation_model,
     loader,
     device,
     image_noise_std=0.0,
     image_noise_seed=None,
 ):
-    foundation_model.to(device)
-    foundation_model.eval()
+    if parameters_federated.PRE_TRAIN_OR_EMBEDDING_MODEL == "dinov2_s":
+        foundation_model = prepare_foundation_extractor(
+            parameters_federated.FOUNDATION_MODEL,
+            device,
+        )
+        foundation_model.to(device)
+        foundation_model.eval()
 
     generator = None
     if image_noise_seed is not None:
@@ -129,42 +215,60 @@ def extract_embeddings_from_loader(
 
     embeddings_list = []
     labels_list = []
+    if parameters_federated.PRE_TRAIN_OR_EMBEDDING_MODEL == "dinov2_s":
+        for batch in loader:
+            images = batch["image"].to(device)
+            labels = batch["label"]
+            
+          
+            images = prepare_input_for_dino_vs2(
+                    images, device, image_size=parameters_federated.FOUNDATION_IMAGE_SIZE)
 
-    for batch in loader:
-        images = batch["image"].to(device)
-        labels = batch["label"]
+            if image_noise_std > 0:
+                noise = torch.randn(
+                    images.shape,
+                    generator=generator,
+                    device="cpu",
+                    dtype=images.dtype,
+                ).to(device)
+                images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
-        # 1) Redimensiona ANTES de aplicar ruído: assim o ruído passa a ser
-        #    injetado na resolução real de entrada do modelo fundacional
-        #    (image_size x image_size), e não mais em 28x28 seguido de
-        #    upsample -- o que antes fazia a interpolação bilinear "borrar"
-        #    parte do ruído de alta frequência antes dele chegar ao extrator.
-        images = resize_to_foundation_input(
-            images, device, image_size=parameters_federated.FOUNDATION_IMAGE_SIZE
-        )
+            # 2) Só então normaliza com as estatísticas do ImageNet.
+            images = normalize_for_foundation(images, device)
 
-        if image_noise_std > 0:
-            noise = torch.randn(
-                images.shape,
-                generator=generator,
-                device="cpu",
-                dtype=images.dtype,
-            ).to(device)
-            images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
+            embeddings = foundation_model(images)
+            embeddings_list.append(embeddings.cpu())
+            if isinstance(labels, (list, tuple)):
+                if len(labels) == 1 and torch.is_tensor(labels[0]):
+                    labels = labels[0]
+                elif all(torch.is_tensor(label) for label in labels):
+                    labels = torch.stack(labels, dim=-1)
+                else:
+                    labels = torch.tensor(labels)
 
-        # 2) Só então normaliza com as estatísticas do ImageNet.
-        images = normalize_for_foundation(images, device)
+            labels = labels.to(dtype=torch.long).reshape(-1)
+            labels_list.append(labels.cpu())
+    elif parameters_federated.PRE_TRAIN_OR_EMBEDDING_MODEL == "pre_train":
+        for batch in loader:
+            images = batch["image"].to(device)
+            labels = batch["label"]
+            embeddings_list.append(images.cpu())
+            if isinstance(labels, (list, tuple)):
+                if len(labels) == 1 and torch.is_tensor(labels[0]):
+                    labels = labels[0]
+                elif all(torch.is_tensor(label) for label in labels):
+                    labels = torch.stack(labels, dim=-1)
+                else:
+                    labels = torch.tensor(labels)
 
-        embeddings = foundation_model(images)
-        embeddings_list.append(embeddings.cpu())
-        labels_list.append(labels.cpu())
+            labels = labels.to(dtype=torch.long).reshape(-1)
+            labels_list.append(labels.cpu())
 
     return torch.cat(embeddings_list, dim=0), torch.cat(labels_list, dim=0)
 
 
 def build_or_load_embedding_loader(
     cache_path,
-    foundation_model,
     image_loader,
     device,
     metadata,
@@ -185,7 +289,6 @@ def build_or_load_embedding_loader(
             )
 
     embeddings, labels = extract_embeddings_from_loader(
-        foundation_model,
         image_loader,
         device,
         image_noise_std=image_noise_std,
@@ -245,7 +348,8 @@ def set_weights(net, parameters):
     params_dict = zip(net.state_dict().keys(), parameters)
     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
     net.load_state_dict(state_dict, strict=True)
-    
+
+#para pegar o pre-train pretrain_dataset = fds.load_split("pretrain")    
 def preprocess_dataset(dataset):
     def flatten_labels(batch):
         new_labels = []
@@ -259,7 +363,32 @@ def preprocess_dataset(dataset):
         batch["label"] = new_labels
         return batch
 
-    return dataset.map(flatten_labels, batched=True)
+    dataset = dataset.map(
+        flatten_labels,
+        batched=True,
+    )
+
+    train_dataset = dataset["train"].class_encode_column("label")
+
+    split = train_dataset.train_test_split(
+        test_size=parameters_federated.PRETRAIN_DATA_FRACTION,
+        seed=parameters_federated.DATA_SPLIT_SEED,
+        shuffle=True,
+        stratify_by_column="label",
+    )
+
+    processed_dataset = DatasetDict(
+        {
+            split_name: split_dataset
+            for split_name, split_dataset in dataset.items()
+            if split_name != "train"
+        }
+    )
+
+    processed_dataset["train"] = split["train"]
+    processed_dataset["pretrain"] = split["test"]
+
+    return processed_dataset
 
 
 def load_data(partition_id: int, num_partitions: int):

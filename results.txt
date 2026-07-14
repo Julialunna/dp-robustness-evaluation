@@ -158,3 +158,10 @@ novo jeito: imgem->redimension->adiciona ruído
 0.8635  0.2794  0.2775  0.2183
 [Servidor] Avaliação final | limpo: acc=73.41% | ruído σ=0.1: acc=59.20% | ruído σ=0.25: acc=60.09% | ruído σ=0.5: acc=28.40%
 0.7341  0.592  0.6009  0.284 
+
+[Servidor] Avaliação final | limpo: acc=62.97% | ruído σ=0.1: acc=53.44% | ruído σ=0.25: acc=36.13% | ruído σ=0.5: acc=26.49%
+[Servidor] Avaliação final | limpo: acc=48.19% | ruído σ=0.1: acc=42.88% | ruído σ=0.25: acc=24.35% | ruído σ=0.5: acc=12.97%
+
+[Servidor] Avaliação final | limpo: acc=55.25% | ruído σ=0.1: acc=39.94% | ruído σ=0.25: acc=21.77% | ruído σ=0.5: acc=6.88%
+[Servidor] Avaliação final | limpo: acc=68.29% | ruído σ=0.1: acc=52.98% | ruído σ=0.25: acc=37.97% | ruído σ=0.5: acc=25.89%
+
