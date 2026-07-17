@@ -32,36 +32,43 @@ class Encoder(nn.Module):
         input_dim: int,
         num_classes: int = NUM_CLASSES,
         latent_dim: int = LATENT_DIM,
-        hidden_dim: int = 128,
+        hidden_dim: int = 256,
     ):
         super().__init__()
 
         self.input_dim = input_dim
         self.num_classes = num_classes
         self.latent_dim = latent_dim
-
+        #embedding concatenado com a classe, do mesmo jeito que é com CNN
         enc_in = input_dim + num_classes
-        reduced_dim = max(hidden_dim // 2, latent_dim)
 
         self.net = nn.Sequential(
             nn.Linear(enc_in, hidden_dim),
-            nn.ReLU(),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
 
-            nn.Linear(hidden_dim, reduced_dim),
-            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
         )
 
-        self.fc_mu = nn.Linear(reduced_dim, latent_dim)
-        self.fc_logvar = nn.Linear(reduced_dim, latent_dim)
+        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
+        self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
 
     def forward(self, x, c):
         h = torch.cat([x, c], dim=1)
+
         h = self.net(h)
 
         mu = self.fc_mu(h)
         logvar = self.fc_logvar(h)
 
         return mu, logvar
+
 
 # ----------------------------------------------------------------------
 # Decoder convolucional: aproxima p_theta(x | z, c)
@@ -72,7 +79,7 @@ class Decoder(nn.Module):
         input_dim: int,
         num_classes: int = NUM_CLASSES,
         latent_dim: int = LATENT_DIM,
-        hidden_dim: int = 128,
+        hidden_dim: int = 256,
     ):
         super().__init__()
 
@@ -81,14 +88,19 @@ class Decoder(nn.Module):
         self.latent_dim = latent_dim
 
         dec_in = latent_dim + num_classes
-        reduced_dim = max(hidden_dim // 2, latent_dim)
 
         self.net = nn.Sequential(
-            nn.Linear(dec_in, reduced_dim),
-            nn.ReLU(),
+            nn.Linear(dec_in, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
 
-            nn.Linear(reduced_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
 
             nn.Linear(hidden_dim, input_dim),
         )
@@ -114,7 +126,7 @@ class CVAE(nn.Module):
         input_dim: int,
         num_classes: int = NUM_CLASSES,
         latent_dim: int = LATENT_DIM,
-        hidden_dim: int = 128,
+        hidden_dim: int = 256,
     ):
         super().__init__()
 
