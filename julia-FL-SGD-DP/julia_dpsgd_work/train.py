@@ -18,9 +18,9 @@ from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
 
 import parameters_federated
+import models
 
 fds = None
-
 
 def get_device():
     if torch.cuda.is_available():
@@ -28,68 +28,6 @@ def get_device():
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
-
-
-class CNNEmbeddingExtractor(nn.Module):
-    def __init__(
-        self,
-        in_channels=3,
-        embedding_dim=128,
-        base_channels=32,
-    ):
-        super().__init__()
-
-        self.features = nn.Sequential(
-            nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_channels),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(base_channels, base_channels * 2, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_channels * 2),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(base_channels * 2, base_channels * 4, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_channels * 4),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(base_channels * 4, base_channels * 8, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(base_channels * 8),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1)),
-        )
-
-        self.embedding_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(base_channels * 8, embedding_dim),
-            nn.Sigmoid(),
-        )
-
-        self._uses_imagenet_normalization = False
-
-    def forward(self, images):
-        features = self.features(images)
-        return self.embedding_head(features)
-
-
-class CNNPretrainClassifier(nn.Module):
-    def __init__(
-        self,
-        embedding_dim,
-        num_classes,
-        base_channels,
-    ):
-        super().__init__()
-        self.extractor = CNNEmbeddingExtractor(
-            in_channels=3,
-            embedding_dim=embedding_dim,
-            base_channels=base_channels,
-        )
-        self.classifier = nn.Linear(embedding_dim, num_classes)
-
-    def forward(self, images):
-        embeddings = self.extractor(images)
-        return self.classifier(embeddings)
-
 
 def get_dataset_name():
     if parameters_federated.DATASET == "mnist":
@@ -99,6 +37,9 @@ def get_dataset_name():
 
 def get_cnn_checkpoint_path():
     return Path(parameters_federated.CNN_CHECKPOINT_PATH)
+
+def get_mlp_checkpoint_path():
+    return Path(parameters_federated.MLP_CHECKPOINT_PATH)
 
 
 def _cnn_checkpoint_metadata():
@@ -110,11 +51,34 @@ def _cnn_checkpoint_metadata():
         "num_classes": parameters_federated.NUM_CLASSES,
         "pretrain_ratio": parameters_federated.PRETRAIN_RATIO,
         "data_split_seed": parameters_federated.DATA_SPLIT_SEED,
+        "pretrain_epochs": parameters_federated.PRETRAIN_EPOCHS,
+        "pretrain_lr": parameters_federated.PRETRAIN_LR,
+        "pretrain_weight_decay": parameters_federated.PRETRAIN_WEIGHT_DECAY,
+        "pretrain_seed": parameters_federated.PRETRAIN_SEED,
+    }
+def _mlp_checkpoint_metadata():
+    return {
+        "dataset": parameters_federated.DATASET,
+        "input_size": parameters_federated.MLP_INPUT_SIZE,
+        "embedding_dim": parameters_federated.EMBEDDING_DIM,
+        "hidden_size": parameters_federated.EMBEDDING_HIDDEN_SIZE,
+        "image_size": parameters_federated.FOUNDATION_IMAGE_SIZE,
+        "num_classes": parameters_federated.NUM_CLASSES,
+        "pretrain_ratio": parameters_federated.PRETRAIN_RATIO,
+        "data_split_seed": parameters_federated.DATA_SPLIT_SEED,
+        "pretrain_epochs": parameters_federated.PRETRAIN_EPOCHS,
+        "pretrain_lr": parameters_federated.PRETRAIN_LR,
+        "pretrain_weight_decay": parameters_federated.PRETRAIN_WEIGHT_DECAY,
+        "pretrain_seed": parameters_federated.PRETRAIN_SEED,
     }
 
 
-def _checkpoint_matches(checkpoint):
+def _checkpoint_cnn_matches(checkpoint):
     return checkpoint.get("metadata", {}) == _cnn_checkpoint_metadata()
+
+
+def _checkpoint_mlp_matches(checkpoint):
+    return checkpoint.get("metadata", {}) == _mlp_checkpoint_metadata()
 
 
 def _apply_image_transforms(dataset):
@@ -128,16 +92,7 @@ def _apply_image_transforms(dataset):
 
 
 def _prepare_labels(labels):
-    if isinstance(labels, (list, tuple)):
-        if len(labels) == 1 and torch.is_tensor(labels[0]):
-            labels = labels[0]
-        elif all(torch.is_tensor(label) for label in labels):
-            labels = torch.stack(labels, dim=-1)
-        else:
-            labels = torch.tensor(labels)
-
-    labels = labels.to(dtype=torch.long).reshape(-1)
-    return labels
+    return labels.to(dtype=torch.long).reshape(-1)
 
 
 def resize_to_foundation_input(images, device, image_size=224):
@@ -145,17 +100,18 @@ def resize_to_foundation_input(images, device, image_size=224):
 
     if images.dim() == 3:
         images = images.unsqueeze(1)
+        
+    if parameters_federated.FOUNDATION_MODEL != "mlp":
+        if images.size(1) == 1:
+            images = images.repeat(1, 3, 1, 1)
 
-    if images.size(1) == 1:
-        images = images.repeat(1, 3, 1, 1)
-
-    if images.shape[-2:] != (image_size, image_size):
-        images = F.interpolate(
-            images,
-            size=(image_size, image_size),
-            mode="bilinear",
-            align_corners=False,
-        )
+        if images.shape[-2:] != (image_size, image_size):
+            images = F.interpolate(
+                images,
+                size=(image_size, image_size),
+                mode="bilinear",
+                align_corners=False,
+            )
 
     return images
 
@@ -177,7 +133,7 @@ def normalize_for_foundation(images, device):
 def prepare_images_for_extractor(images, extractor, device, image_size=224):
     images = resize_to_foundation_input(images, device, image_size=image_size)
 
-    if getattr(extractor, "_uses_imagenet_normalization", True):
+    if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
         images = normalize_for_foundation(images, device)
 
     return images
@@ -186,7 +142,7 @@ def prepare_images_for_extractor(images, extractor, device, image_size=224):
 def preprocess_image(images, device, image_size=224, extractor=None):
     images = resize_to_foundation_input(images, device, image_size=image_size)
 
-    if extractor is None or getattr(extractor, "_uses_imagenet_normalization", True):
+    if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
         images = normalize_for_foundation(images, device)
 
     return images
@@ -225,8 +181,6 @@ def _run_pretrain_epoch(model, loader, optimizer, criterion, device):
 
 def _split_train_dataset(train_dataset):
     pretrain_ratio = float(parameters_federated.PRETRAIN_RATIO)
-    if not 0.0 < pretrain_ratio < 1.0:
-        raise ValueError("PRETRAIN_RATIO deve estar entre 0 e 1.")
 
     train_dataset = train_dataset.shuffle(seed=parameters_federated.DATA_SPLIT_SEED)
     num_public = int(round(len(train_dataset) * pretrain_ratio))
@@ -241,7 +195,7 @@ def get_public_private_splits():
     return _split_train_dataset(train_dataset)
 
 
-def pretrain_cnn_extractor(device=None):
+def pretrain_extractor(device=None):
     device = device or get_device()
     public_dataset, private_dataset = get_public_private_splits()
     pretrain_data = _apply_image_transforms(public_dataset)
@@ -254,11 +208,29 @@ def pretrain_cnn_extractor(device=None):
 
     torch.manual_seed(parameters_federated.PRETRAIN_SEED)
 
-    model = CNNPretrainClassifier(
-        embedding_dim=parameters_federated.EMBEDDING_DIM,
-        num_classes=parameters_federated.NUM_CLASSES,
-        base_channels=parameters_federated.CNN_BASE_CHANNELS,
-    ).to(device)
+    if parameters_federated.FOUNDATION_MODEL == "cnn":
+        model = models.CNNPretrainClassifier(
+            embedding_dim=parameters_federated.EMBEDDING_DIM,
+            num_classes=parameters_federated.NUM_CLASSES,
+            base_channels=parameters_federated.CNN_BASE_CHANNELS,
+        ).to(device)
+        checkpoint_path = get_cnn_checkpoint_path()
+        metadata = _cnn_checkpoint_metadata()
+
+    elif parameters_federated.FOUNDATION_MODEL == "mlp":
+        model = models.MLPPretrainClassifier(
+            input_size=parameters_federated.MLP_INPUT_SIZE,
+            embedding_dim=parameters_federated.EMBEDDING_DIM,
+            num_classes=parameters_federated.NUM_CLASSES,
+            hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
+        ).to(device)
+        checkpoint_path = get_mlp_checkpoint_path()
+        metadata = _mlp_checkpoint_metadata()
+
+    else:
+        raise ValueError(
+            f"Modelo extrator desconhecido: {parameters_federated.FOUNDATION_MODEL}"
+        )
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -267,63 +239,52 @@ def pretrain_cnn_extractor(device=None):
     )
     criterion = nn.CrossEntropyLoss()
 
-    print(
-        f"[CNN] Pré-treinamento com {len(pretrain_data)} exemplos. "
-        f"Os outros {len(private_dataset)} exemplos serão usados pelos clientes."
-    )
-
     for epoch in range(parameters_federated.PRETRAIN_EPOCHS):
         train_loss, train_accuracy = _run_pretrain_epoch(
-            model,
-            train_loader,
-            optimizer,
-            criterion,
-            device,
+            model, train_loader, optimizer, criterion, device,
         )
-
         print(
             f"Epoch {epoch + 1}/{parameters_federated.PRETRAIN_EPOCHS} | "
             f"loss={train_loss:.4f} | accuracy={train_accuracy:.4f}"
         )
 
-    checkpoint_path = get_cnn_checkpoint_path()
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
-        {
-            "state_dict": model.extractor.state_dict(),
-            "metadata": _cnn_checkpoint_metadata(),
-        },
+        {"state_dict": model.extractor.state_dict(), "metadata": metadata},
         checkpoint_path,
     )
 
-    print(f"[CNN] Extratora salva em {checkpoint_path}")
+    print(f"Extratora salva em {checkpoint_path}")
 
 
 def ensure_embedding_extractor_ready():
-    if parameters_federated.FOUNDATION_MODEL != "cnn":
+    if parameters_federated.FOUNDATION_MODEL == "cnn":
+        checkpoint_path = get_cnn_checkpoint_path()
+        matches_fn = _checkpoint_cnn_matches
+    elif parameters_federated.FOUNDATION_MODEL == "mlp":
+        checkpoint_path = get_mlp_checkpoint_path()
+        matches_fn = _checkpoint_mlp_matches
+    else:
         return
-
-    checkpoint_path = get_cnn_checkpoint_path()
 
     if checkpoint_path.exists() and not parameters_federated.FORCE_RETRAIN_EXTRACTOR:
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        if _checkpoint_matches(checkpoint):
-            print(f"[CNN] Usando extratora salva em {checkpoint_path}")
+        if matches_fn(checkpoint):
+            print(f"Usando extratora salva em {checkpoint_path}")
             return
-
-        print("[CNN] Checkpoint incompatível com a configuração atual. Retreinando.")
+        print("Checkpoint incompatível com a configuração atual. Retreinando.")
 
     if not parameters_federated.PRETRAIN_EXTRACTOR:
         raise FileNotFoundError(
-            f"A CNN não está salva em {checkpoint_path} e PRETRAIN_EXTRACTOR=False."
+            f"A extratora não está salva em {checkpoint_path} e PRETRAIN_EXTRACTOR=False."
         )
 
-    pretrain_cnn_extractor()
+    pretrain_extractor()
 
 
 def define_foundation_extractor(model_name: str, device: torch.device):
     if model_name == "cnn":
-        extractor = CNNEmbeddingExtractor(
+        extractor = models.CNNEmbeddingExtractor(
             in_channels=3,
             embedding_dim=parameters_federated.EMBEDDING_DIM,
             base_channels=parameters_federated.CNN_BASE_CHANNELS,
@@ -337,7 +298,7 @@ def define_foundation_extractor(model_name: str, device: torch.device):
             )
 
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        if not _checkpoint_matches(checkpoint):
+        if not _checkpoint_cnn_matches(checkpoint):
             raise ValueError(
                 "O checkpoint da CNN não corresponde ao dataset ou à arquitetura atual."
             )
@@ -345,35 +306,34 @@ def define_foundation_extractor(model_name: str, device: torch.device):
         extractor.load_state_dict(checkpoint["state_dict"], strict=True)
         embedding_dim = parameters_federated.EMBEDDING_DIM
 
-    elif model_name == "efficientnet_b0":
-        weights = EfficientNet_B0_Weights.DEFAULT
-        model = efficientnet_b0(weights=weights)
-        extractor = nn.Sequential(
-            model.features,
-            model.avgpool,
-            nn.Flatten(),
+    elif model_name == "mlp":
+        extractor = models.MLPEmbeddingExtractor(
+            input_size=parameters_federated.MLP_INPUT_SIZE,
+            embedding_dim=parameters_federated.EMBEDDING_DIM,
+            hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
         )
-        extractor._uses_imagenet_normalization = True
-        embedding_dim = 1280
+        checkpoint_path = get_mlp_checkpoint_path()
 
-    elif model_name == "mobilenet_v3_small":
-        weights = MobileNet_V3_Small_Weights.DEFAULT
-        model = mobilenet_v3_small(weights=weights)
-        extractor = nn.Sequential(
-            model.features,
-            model.avgpool,
-            nn.Flatten(),
-        )
-        extractor._uses_imagenet_normalization = True
-        embedding_dim = 576
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(
+                f"Checkpoint da MLP não encontrado em {checkpoint_path}. "
+                "Execute o projeto pelo main.py para pré-treinar a extratora antes do Flower."
+            )
 
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        if not _checkpoint_mlp_matches(checkpoint):
+            raise ValueError(
+                "O checkpoint da MLP não corresponde ao dataset ou à arquitetura atual."
+            )
+
+        extractor.load_state_dict(checkpoint["state_dict"], strict=True)
+        embedding_dim = parameters_federated.EMBEDDING_DIM
     elif model_name == "dinov2_s":
         extractor = torch.hub.load(
             "facebookresearch/dinov2",
             "dinov2_vits14",
             trust_repo=True,
         )
-        extractor._uses_imagenet_normalization = True
         embedding_dim = 384
 
     else:
@@ -422,7 +382,7 @@ def extract_embeddings_from_loader(
             ).to(device)
             images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
-        if getattr(foundation_model, "_uses_imagenet_normalization", True):
+        if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
             images = normalize_for_foundation(images, device)
 
         embeddings = foundation_model(images)
@@ -482,37 +442,6 @@ def build_or_load_embedding_loader(
     )
 
 
-class EmbeddingClassifier(nn.Module):
-    def __init__(
-        self,
-        input_size,
-        hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
-        num_classes=10,
-        dropout=0.2,
-    ):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.LayerNorm(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LayerNorm(hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size // 2, num_classes),
-        )
-
-    def forward(self, x):
-        return self.net(x.view(x.size(0), -1))
-
-
-def disable_inplace_relu(model):
-    for module in model.modules():
-        if isinstance(module, nn.ReLU):
-            module.inplace = False
-
-
 def get_weights(net):
     return [value.cpu().numpy() for _, value in net.state_dict().items()]
 
@@ -525,20 +454,10 @@ def set_weights(net, parameters):
 
 def preprocess_dataset(dataset):
     def flatten_labels(batch):
-        new_labels = []
-
-        for label in batch["label"]:
-            if isinstance(label, list):
-                if len(label) != 1:
-                    raise ValueError(
-                        "Este pipeline exige um único rótulo por imagem. "
-                        "ChestMNIST é multirrótulo e precisa de outra loss e outras métricas."
-                    )
-                new_labels.append(int(label[0]))
-            else:
-                new_labels.append(int(label))
-
-        batch["label"] = new_labels
+        batch["label"] = [
+            int(label[0]) if isinstance(label, list) else int(label)
+            for label in batch["label"]
+        ]
         return batch
 
     return dataset.map(flatten_labels, batched=True)
@@ -557,8 +476,17 @@ def load_data(partition_id: int, num_partitions: int):
     if fds is None:
         if parameters_federated.PARTITIONER == "iid":
             partitioner = IidPartitioner(num_partitions=num_partitions)
+            validation_partitioner = IidPartitioner(num_partitions=num_partitions)
         elif parameters_federated.PARTITIONER == "dirichlet":
             partitioner = DirichletPartitioner(
+                num_partitions=num_partitions,
+                partition_by="label",
+                alpha=parameters_federated.DIRICHLET_ALPHA,
+                min_partition_size=10,
+                self_balancing=True,
+                shuffle=True,
+            )
+            validation_partitioner = DirichletPartitioner(
                 num_partitions=num_partitions,
                 partition_by="label",
                 alpha=parameters_federated.DIRICHLET_ALPHA,
@@ -571,14 +499,16 @@ def load_data(partition_id: int, num_partitions: int):
                 f"Particionador desconhecido: {parameters_federated.PARTITIONER}"
             )
 
+        partitioners = {"train": partitioner}
+        if parameters_federated.DATASET != "mnist":
+            partitioners["validation"] = validation_partitioner
+
         fds = FederatedDataset(
             dataset=get_dataset_name(),
-            partitioners={"train": partitioner},
+            partitioners=partitioners,
+            #tira os 10% do teste que serão publicos para pré-treinamento
             preprocessor=preprocess_federated_dataset,
         )
-
-    partition = fds.load_partition(partition_id)
-    partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
 
     pytorch_transforms = Compose([ToTensor()])
 
@@ -586,15 +516,22 @@ def load_data(partition_id: int, num_partitions: int):
         batch["image"] = [pytorch_transforms(image) for image in batch["image"]]
         return batch
 
-    partition_train_test = partition_train_test.with_transform(apply_transforms)
+    train_partition = fds.load_partition(partition_id, split="train").with_transform(apply_transforms)
+
+    if parameters_federated.DATASET == "mnist":
+        train_test_partition = train_partition.train_test_split(test_size=0.2, seed=42)
+        train_partition = train_test_partition["train"]
+        test_partition = train_test_partition["test"]
+    else:
+        test_partition = fds.load_partition(partition_id, split="validation").with_transform(apply_transforms)
 
     train_loader = DataLoader(
-        partition_train_test["train"],
+        train_partition,
         batch_size=parameters_federated.BATCH_SIZE,
         shuffle=True,
     )
     test_loader = DataLoader(
-        partition_train_test["test"],
+        test_partition,
         batch_size=parameters_federated.BATCH_SIZE,
     )
 

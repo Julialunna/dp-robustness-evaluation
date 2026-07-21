@@ -176,3 +176,17 @@ Avaliação final | limpo: acc=75.11% | ruído σ=0.025: acc=74.62% | ruído σ=
 [Servidor] Avaliação final | limpo: acc=61.36% | ruído σ=0.08: acc=9.82% | ruído σ=0.18: acc=8.54% | ruído σ=0.38: acc=20.95%
 
 [Servidor] Avaliação final | limpo: acc=70.08% | ruído σ=0.1: acc=8.38% | ruído σ=0.25: acc=7.62% | ruído σ=0.5: acc=8.25%
+
+MNIST DP CNN 
+Avaliação final | limpo: acc=80.27% | ruído σ=0.08: acc=31.13% | ruído σ=0.18: acc=11.26% | ruído σ=0.38: acc=10.09%
+MNIST NO-DP CNN
+Avaliação final | limpo: acc=88.79% | ruído σ=0.1: acc=24.26% | ruído σ=0.25: acc=11.71% | ruído σ=0.5: acc=12.42%
+MNIST DP MLP
+epsilon=5
+Avaliação final | limpo: acc=92.31% | ruído σ=0.1: acc=91.66% | ruído σ=0.25: acc=87.13% | ruído σ=0.5: acc=64.99%
+Avaliação final | limpo: acc=92.02% | ruído σ=0.1: acc=91.89% | ruído σ=0.25: acc=88.25% | ruído σ=0.5: acc=66.02%
+epsilon=3
+Avaliação final | limpo: acc=93.11% | ruído σ=0.1: acc=92.70% | ruído σ=0.25: acc=88.88% | ruído σ=0.5: acc=66.66%
+MNIST NO-DP MLP
+Avaliação final | limpo: acc=92.62% | ruído σ=0.1: acc=92.06% | ruído σ=0.25: acc=88.61% | ruído σ=0.5: acc=62.73%
+Avaliação final | limpo: acc=92.21% | ruído σ=0.1: acc=91.37% | ruído σ=0.25: acc=84.82% | ruído σ=0.5: acc=61.70%

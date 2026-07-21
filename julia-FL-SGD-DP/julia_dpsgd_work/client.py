@@ -7,6 +7,7 @@ from flwr.common import Context
 
 import dp_cvae
 import parameters_federated
+import models
 import train
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -39,8 +40,7 @@ class FlowerClient(NumPyClient):
         self.device,
         )
 
-        self.model = train.EmbeddingClassifier(
-            input_size=self.embedding_dim,
+        self.model = models.EmbeddingClassifier(
             num_classes=parameters_federated.NUM_CLASSES,
         )
     
@@ -67,30 +67,41 @@ class FlowerClient(NumPyClient):
     def _expected_cache_metadata(self) -> dict:
         metadata = {
             "cache_version": parameters_federated.SYNTHETIC_CACHE_VERSION,
+            "dataset": parameters_federated.DATASET,
+            "num_classes": parameters_federated.NUM_CLASSES,
             "partition_id": self.partition_id,
             "num_real_train_examples": len(self.train_loader.dataset),
             "partitioner": parameters_federated.PARTITIONER,
             "dirichlet_alpha": parameters_federated.DIRICHLET_ALPHA,
             "use_local_dp_cvae": parameters_federated.USE_LOCAL_DP_CVAE,
-            "target_epsilon": parameters_federated.TARGET_EPSILON,
+            "target_epsilon": self.target_epsilon,
             "target_delta": self.target_delta,
             "max_grad_norm": self.max_grad_norm,
             "cvae_hidden_dim": parameters_federated.CVAE_HIDDEN_DIM,
             "cvae_latent_dim": parameters_federated.CVAE_LATENT_DIM,
+            "cvae_batch_size": parameters_federated.CVAE_BATCH_SIZE,
             "cvae_epochs": parameters_federated.CVAE_EPOCHS,
+            "cvae_lr": parameters_federated.CVAE_LR,
             "cvae_beta": parameters_federated.CVAE_BETA,
+            "cnn_base_channels": parameters_federated.CNN_BASE_CHANNELS,
+            "pretrain_epochs": parameters_federated.PRETRAIN_EPOCHS,
+            "pretrain_lr": parameters_federated.PRETRAIN_LR,
+            "pretrain_weight_decay": parameters_federated.PRETRAIN_WEIGHT_DECAY,
+            "pretrain_seed": parameters_federated.PRETRAIN_SEED,
         }
         metadata.update(self._extractor_signature())
         return metadata
 
     def _test_embedding_metadata(self) -> dict:
         metadata = {
-            "cache_version": 1,
+            "cache_version": 2,
             "partition_id": self.partition_id,
             "num_test_examples": len(self.test_loader.dataset),
             "partitioner": parameters_federated.PARTITIONER,
             "dirichlet_alpha": parameters_federated.DIRICHLET_ALPHA,
             "split_seed": 42,
+            "dataset": parameters_federated.DATASET,
+            "num_classes": parameters_federated.NUM_CLASSES,
         }
         metadata.update(self._extractor_signature())
         return metadata
@@ -134,22 +145,23 @@ class FlowerClient(NumPyClient):
             )
 
         print(f"[Cliente {self.partition_id}] Extraindo embeddings reais locais...")
+        #normaliza entrada para treinamento do CVAE 
         real_embeddings, real_labels = train.extract_embeddings_from_loader(
             self.embedding_model,
             self.train_loader,
             self.device,
         )
-        emb_mean = real_embeddings.mean(dim=0, keepdim=True)
-        emb_std = real_embeddings.std(dim=0, keepdim=True).clamp_min(1e-6)
+        # emb_mean = real_embeddings.mean(dim=0, keepdim=True)
+        # emb_std = real_embeddings.std(dim=0, keepdim=True).clamp_min(1e-6)
 
-        real_embeddings_norm = (real_embeddings - emb_mean) / emb_std
+        # real_embeddings_norm = (real_embeddings - emb_mean) / emb_std
 
         if parameters_federated.USE_LOCAL_DP_CVAE:
             print(f"[Cliente {self.partition_id}] Treinando CVAE local com DP-SGD...")
         else:
             print(f"[Cliente {self.partition_id}] Treinando CVAE local sem DP...")
         result = dp_cvae.train_local_dp_cvae(
-            real_embeddings_norm,
+            real_embeddings,
             real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
             input_dim=self.embedding_dim,
@@ -166,14 +178,16 @@ class FlowerClient(NumPyClient):
             device=self.device,
         )
 
-        synthetic_embeddings_norm, synthetic_labels = dp_cvae.generate_synthetic_embeddings(
+        synthetic_embeddings, synthetic_labels = dp_cvae.generate_synthetic_embeddings(
             result.model,
             real_labels=real_labels,
             num_classes=parameters_federated.NUM_CLASSES,
             latent_dim=parameters_federated.CVAE_LATENT_DIM,
             device=self.device,
         )
-        synthetic_embeddings = synthetic_embeddings_norm * emb_std + emb_mean
+        
+        # Denormaliza os embeddings sintéticos para o espaço original
+        # synthetic_embeddings = synthetic_embeddings_norm * emb_std + emb_mean
 
         epsilon = result.epsilon
         cvae_loss = result.final_loss
