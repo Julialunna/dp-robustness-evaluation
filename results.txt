@@ -190,3 +190,59 @@ Avaliação final | limpo: acc=93.11% | ruído σ=0.1: acc=92.70% | ruído σ=0.
 MNIST NO-DP MLP
 Avaliação final | limpo: acc=92.62% | ruído σ=0.1: acc=92.06% | ruído σ=0.25: acc=88.61% | ruído σ=0.5: acc=62.73%
 Avaliação final | limpo: acc=92.21% | ruído σ=0.1: acc=91.37% | ruído σ=0.25: acc=84.82% | ruído σ=0.5: acc=61.70%
+
+
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=85.12% | ruído σ=0.1: acc=82.34% | ruído σ=0.25: acc=69.61% | ruído σ=0.5: acc=42.50%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=85.31% | ruído σ=0.1: acc=84.10% | ruído σ=0.25: acc=71.19% | ruído σ=0.5: acc=45.49%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=92.54% | ruído σ=0.1: acc=91.33% | ruído σ=0.25: acc=79.53% | ruído σ=0.5: acc=54.28%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=93.07% | ruído σ=0.1: acc=92.29% | ruído σ=0.25: acc=84.24% | ruído σ=0.5: acc=51.47%
+
+
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=79.16% | ruído σ=0.1: acc=75.40% | ruído σ=0.25: acc=61.94% | ruído σ=0.5: acc=39.85%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=88.41% | ruído σ=0.1: acc=82.78% | ruído σ=0.25: acc=68.48% | ruído σ=0.5: acc=42.23%
+
+mudei ultima camada do cvae para gerar entre 0 e 1 também
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=88.89% | ruído σ=0.1: acc=87.08% | ruído σ=0.25: acc=73.62% | ruído σ=0.5: acc=49.41%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=86.26% | ruído σ=0.1: acc=82.94% | ruído σ=0.25: acc=72.13% | ruído σ=0.5: acc=49.93%
+
+mudei batch_size para 256 e mantive a alteração anterior 
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=84.97% | ruído σ=0.1: acc=82.58% | ruído σ=0.25: acc=68.46% | ruído σ=0.5: acc=42.51%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 97.19% | 2.39σ=0.25: 80.57% | 16.51σ=0.5: 50.03% | 42.46%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=84.20% | ruído σ=0.1: acc=82.62% | ruído σ=0.25: acc=69.11% | ruído σ=0.5: acc=43.25%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 98.12% | 1.58σ=0.25: 82.08% | 15.09σ=0.5: 51.37% | 40.95%
+
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=93.13% | ruído σ=0.1: acc=91.42% | ruído σ=0.25: acc=77.62% | ruído σ=0.5: acc=48.52%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 98.16% | 1.71σ=0.25: 83.35% | 15.51σ=0.5: 52.10% | 44.61%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=92.70% | ruído σ=0.1: acc=91.12% | ruído σ=0.25: acc=76.01% | ruído σ=0.5: acc=47.03%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 98.30% | 1.58σ=0.25: 82.00% | 16.69σ=0.5: 50.73% | 45.67%
+
+
+mudei rede do modelo federado para o antigo
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=87.08% | ruído σ=0.1: acc=82.76% | ruído σ=0.25: acc=64.64% | ruído σ=0.5: acc=38.99%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 95.04% | 4.32σ=0.25: 74.23% | 22.44σ=0.5: 44.77% | 48.09%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=88.00% | ruído σ=0.1: acc=84.35% | ruído σ=0.25: acc=68.36% | ruído σ=0.5: acc=42.27%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 95.85% | 3.65σ=0.25: 77.68% | 19.64σ=0.5: 48.03% | 45.73%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=True | epsilon=5.0 | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=88.82% | ruído σ=0.1: acc=85.67% | ruído σ=0.25: acc=68.84% | ruído σ=0.5: acc=40.39%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 96.45% | 3.15σ=0.25: 77.51% | 19.98σ=0.5: 45.47% | 48.43%
+
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=92.48% | ruído σ=0.1: acc=90.21% | ruído σ=0.25: acc=78.98% | ruído σ=0.5: acc=56.59%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 97.55% | 2.27σ=0.25: 85.40% | 13.50σ=0.5: 61.19% | 35.89%
+[Servidor] Avaliação final | dataset=mnist | DP-CVAE=False | epsilon=sem DP | extrator=mlp | distribuição=dirichlet | alpha=1.0
+limpo: acc=91.96% | ruído σ=0.1: acc=89.83% | ruído σ=0.25: acc=79.39% | ruído σ=0.5: acc=58.84%
+[Servidor] Retenção de acurácia com ruído | σ=0.1: 97.68% | 2.13σ=0.25: 86.33% | 12.57σ=0.5: 63.98% | 33.12%

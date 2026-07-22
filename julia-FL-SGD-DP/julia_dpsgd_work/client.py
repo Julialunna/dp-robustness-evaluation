@@ -267,7 +267,6 @@ class FlowerClient(NumPyClient):
         )
         return loss, len(self.test_loader.dataset), {"accuracy": accuracy}
 
-
 def client_fn(context: Context):
     partition_id = context.node_config["partition-id"]
     train_loader, test_loader = train.load_data(

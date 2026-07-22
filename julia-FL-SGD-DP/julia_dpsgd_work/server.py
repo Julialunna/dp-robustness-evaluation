@@ -168,6 +168,13 @@ def get_evaluate_fn(testloader):
                 epsilon_description = str(parameters_federated.TARGET_EPSILON)
             else:
                 epsilon_description = "sem DP"
+                
+            drop_sigma1 = accuracy_clean - accuracy_noisy1
+            drop_sigma2 = accuracy_clean - accuracy_noisy2
+            drop_sigma3 = accuracy_clean - accuracy_noisy3
+            retention_sigma1 = accuracy_noisy1 / accuracy_clean
+            retention_sigma2 = accuracy_noisy2 / accuracy_clean
+            retention_sigma3 = accuracy_noisy3 / accuracy_clean
 
             print(
                 f"[Servidor] Avaliação final | "
@@ -184,6 +191,16 @@ def get_evaluate_fn(testloader):
                 f"acc={accuracy_noisy2 * 100:.2f}% | "
                 f"ruído σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: "
                 f"acc={accuracy_noisy3 * 100:.2f}%"
+            )
+            
+            print(
+                f"[Servidor] Retenção de acurácia com ruído | "
+                f"σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD1}: "
+                f"{retention_sigma1 * 100:.2f}% | {drop_sigma1 * 100:.2f}"
+                f"σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD2}: "
+                f"{retention_sigma2 * 100:.2f}% | {drop_sigma2 * 100:.2f}"
+                f"σ={parameters_federated.EVAL_GAUSSIAN_NOISE_STD3}: "
+                f"{retention_sigma3 * 100:.2f}% | {drop_sigma3 * 100:.2f}%"
             )
 
             return loss_clean, {

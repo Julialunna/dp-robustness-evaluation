@@ -12,6 +12,7 @@ import parameters_federated
 import train
 
 
+
 def clear_cache_on_start():
     synthetic_cache = Path(parameters_federated.SYNTHETIC_CACHE_DIR)
     if synthetic_cache.exists():

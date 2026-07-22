@@ -82,16 +82,33 @@ class Decoder(nn.Module):
 
         dec_in = latent_dim + num_classes
         reduced_dim = max(hidden_dim // 2, latent_dim)
-
-        self.net = nn.Sequential(
+        
+        bounded_output = (
+            parameters_federated.FOUNDATION_MODEL in {"mlp", "cnn"}
+        )
+        
+        layers = [
             nn.Linear(dec_in, reduced_dim),
             nn.ReLU(),
-
             nn.Linear(reduced_dim, hidden_dim),
             nn.ReLU(),
-
             nn.Linear(hidden_dim, input_dim),
-        )
+        ]
+
+        if bounded_output:
+            layers.append(nn.Sigmoid())
+
+        self.net = nn.Sequential(*layers)
+
+        # self.net = nn.Sequential(
+        #     nn.Linear(dec_in, reduced_dim),
+        #     nn.ReLU(),
+
+        #     nn.Linear(reduced_dim, hidden_dim),
+        #     nn.ReLU(),
+
+        #     nn.Linear(hidden_dim, input_dim),
+        # )
 
     def forward(self, z, c):
         h = torch.cat([z, c], dim=1)

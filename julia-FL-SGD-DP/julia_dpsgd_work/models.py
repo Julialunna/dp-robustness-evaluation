@@ -4,30 +4,20 @@ import torch.nn.functional as F
 import parameters_federated
 
 class EmbeddingClassifier(nn.Module):
-    def __init__(
-        self,
-        hidden_size=parameters_federated.EMBEDDING_HIDDEN_SIZE,
-        num_classes=10,
-        dropout=0.2,
-    ):
+    def __init__(self, hidden_size=128, num_classes=10):
         super().__init__()
-        EMBEDDING_DIMS = {"cnn": parameters_federated.EMBEDDING_DIM, "mlp": parameters_federated.EMBEDDING_DIM, "dinov2_s": 384}
-        input_size = EMBEDDING_DIMS[parameters_federated.FOUNDATION_MODEL]
+
+        input_size = parameters_federated.EMBEDDING_DIM
+
         self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.LayerNorm(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LayerNorm(hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size // 2, num_classes),
+            nn.Linear(input_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes),
         )
 
     def forward(self, x):
-        return self.net(x.view(x.size(0), -1))
-    
+        x = x.view(x.size(0), -1)
+        return self.net(x)
 class CNNEmbeddingExtractor(nn.Module):
     def __init__(
         self,
