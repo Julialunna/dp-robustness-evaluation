@@ -6,16 +6,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from torchvision.models import (
-    EfficientNet_B0_Weights,
-    MobileNet_V3_Small_Weights,
-    efficientnet_b0,
-    mobilenet_v3_small,
-)
 from torchvision.transforms import Compose, ToTensor
 
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
+from torchvision.transforms import Compose, Normalize, ToTensor
 
 import parameters_federated
 import models
@@ -82,7 +77,16 @@ def _checkpoint_mlp_matches(checkpoint):
 
 
 def _apply_image_transforms(dataset):
-    pytorch_transforms = Compose([ToTensor()])
+    if parameters_federated.DATASET == "mnist":
+        pytorch_transforms = Compose([
+            ToTensor(),
+            Normalize(
+                (0.1307,),
+                (0.3081,),
+            ),
+        ])
+    else:
+        pytorch_transforms = Compose([ToTensor()])
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(image) for image in batch["image"]]
@@ -380,7 +384,14 @@ def extract_embeddings_from_loader(
                 device="cpu",
                 dtype=images.dtype,
             ).to(device)
-            images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
+            if parameters_federated.DATASET == "mnist":
+                mean = parameters_federated.MNIST_MEAN
+                std = parameters_federated.MNIST_STD
+                images = images * std + mean
+                images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
+                images = (images - mean) / std
+            else:
+                images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
         if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
             images = normalize_for_foundation(images, device)
@@ -511,6 +522,11 @@ def load_data(partition_id: int, num_partitions: int):
         )
 
     pytorch_transforms = Compose([ToTensor()])
+    if parameters_federated.DATASET == "mnist":
+        pytorch_transforms = Compose([
+            ToTensor(),
+            Normalize((parameters_federated.MNIST_MEAN,), (parameters_federated.MNIST_STD,)),
+        ])
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(image) for image in batch["image"]]

@@ -41,18 +41,16 @@ class Encoder(nn.Module):
         self.latent_dim = latent_dim
 
         enc_in = input_dim + num_classes
-        reduced_dim = max(hidden_dim // 2, latent_dim)
 
         self.net = nn.Sequential(
-            nn.Linear(enc_in, hidden_dim),
-            nn.ReLU(),
-
-            nn.Linear(hidden_dim, reduced_dim),
-            nn.ReLU(),
+        nn.Linear(enc_in, hidden_dim),
+        nn.ReLU(),
+        nn.Linear(hidden_dim, hidden_dim),
+        nn.ReLU(),
         )
 
-        self.fc_mu = nn.Linear(reduced_dim, latent_dim)
-        self.fc_logvar = nn.Linear(reduced_dim, latent_dim)
+        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
+        self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
 
     def forward(self, x, c):
         h = torch.cat([x, c], dim=1)

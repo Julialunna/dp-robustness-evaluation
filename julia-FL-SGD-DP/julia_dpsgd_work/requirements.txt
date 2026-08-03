@@ -10,3 +10,4 @@ opacus
 numpy
 pandas
 matplotlib
+importlib-metadataesto

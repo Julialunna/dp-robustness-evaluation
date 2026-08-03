@@ -7,17 +7,18 @@ class EmbeddingClassifier(nn.Module):
     def __init__(self, hidden_size=128, num_classes=10):
         super().__init__()
 
-        input_size = parameters_federated.EMBEDDING_DIM
+        input_size = parameters_federated.CLASSIFIER_INPUT_DIM
 
         self.net = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(128, num_classes),
+            nn.Linear(hidden_size, num_classes),
         )
 
     def forward(self, x):
         x = x.view(x.size(0), -1)
         return self.net(x)
+    
 class CNNEmbeddingExtractor(nn.Module):
     def __init__(
         self,
@@ -77,7 +78,7 @@ class CNNPretrainClassifier(nn.Module):
         return self.classifier(embeddings)
     
 class MLPEmbeddingExtractor(nn.Module):
-    def __init__(self, input_size, embedding_dim=128, hidden_size=256):
+    def __init__(self, input_size, embedding_dim=128, hidden_size=128):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
