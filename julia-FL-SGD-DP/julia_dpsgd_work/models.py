@@ -22,11 +22,13 @@ class EmbeddingClassifier(nn.Module):
 class CNNEmbeddingExtractor(nn.Module):
     def __init__(
         self,
-        in_channels=3,
+        in_channels=3, 
         embedding_dim=128,
         base_channels=32,
     ):
         super().__init__()
+        if parameters_federated.DATASET == "mnist":
+            in_channels = 1
 
         self.features = nn.Sequential(
             nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1, bias=False),

@@ -39,15 +39,9 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 
 def get_test_loader(dataset_str: str):
     dataset = load_dataset(dataset_str)
-    dataset = load_dataset(dataset_str)
+
     pytorch_transforms = Compose([ToTensor()])
-    if parameters_federated.DATASET == "mnist":
-        pytorch_transforms = Compose([
-            ToTensor(),
-            Normalize((parameters_federated.MNIST_MEAN,), (parameters_federated.MNIST_STD,)),
-        ])
-    else:
-        pytorch_transforms = Compose([ToTensor()])
+
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(img) for img in batch["image"]]

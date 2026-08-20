@@ -230,11 +230,11 @@ class FlowerClient(NumPyClient):
     def fit(self, parameters, config):
         train.set_weights(self.model, parameters)
         self.model.to(self.device)
-
+    
         synthetic_loader, epsilon, cvae_loss, num_synthetic = self._build_or_load_synthetic_loader()
-
+    
         optimizer = torch.optim.Adam(self.model.parameters(), lr=parameters_federated.LR)
-
+    
         train.train(
             self.model,
             synthetic_loader,
@@ -244,18 +244,20 @@ class FlowerClient(NumPyClient):
             privacy_engine=None,
             epochs=parameters_federated.EPOCHS,
         )
-
+    
         metrics = {
             "num_synthetic": float(num_synthetic),
         }
-
+    
         if epsilon is not None:
             metrics["epsilon_cvae"] = float(epsilon)
-
+    
         if cvae_loss is not None:
             metrics["cvae_loss"] = float(cvae_loss)
-
+    
         return train.get_weights(self.model), num_synthetic, metrics
+    
+
 
     def evaluate(self, parameters, config):
         train.set_weights(self.model, parameters)

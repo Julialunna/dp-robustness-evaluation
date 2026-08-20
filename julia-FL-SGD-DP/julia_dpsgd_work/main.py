@@ -20,16 +20,11 @@ import parameters_federated
 import train
 
 
-# -----------------------------------------------------------------------------
-# Configuração do experimento
-# -----------------------------------------------------------------------------
 NUM_RUNS = 10
 BASE_SEED = 2026
 
 
-# -----------------------------------------------------------------------------
-# Aleatoriedade e limpeza
-# -----------------------------------------------------------------------------
+
 def seed_main_process(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -270,16 +265,18 @@ class ServerMetricCollector:
             ),
         }
 
-
-# -----------------------------------------------------------------------------
-# Execução
-# -----------------------------------------------------------------------------
 def main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    epsilon = None if not parameters_federated.USE_LOCAL_DP_CVAE else parameters_federated.TARGET_EPSILON
+    alpha = parameters_federated.DIRICHLET_ALPHA if parameters_federated.PARTITIONER == "dirichlet" else None
+
     experiment_name = (
         f"{parameters_federated.DATASET}_"
         f"{parameters_federated.FOUNDATION_MODEL}_"
         f"{'dp' if parameters_federated.USE_LOCAL_DP_CVAE else 'sem_dp'}_"
+        f"{epsilon}_"
+        f"{parameters_federated.PARTITIONER}_"
+        f"{alpha}_"
         f"{timestamp}"
     )
     experiment_dir = Path("artifacts/experiments") / experiment_name
@@ -308,10 +305,29 @@ def main() -> None:
 
     clear_evaluation_cache_once()
 
-    client_resources = {
-        "num_cpus": 2,
-        "num_gpus": 1.0 if torch.cuda.is_available() else 0.0,
-    }
+    if torch.backends.mps.is_available():
+    # No Mac/MPS, limitar a simulação a um único ClientApp por vez.
+        client_resources = {
+            "num_cpus": 2,
+            "num_gpus": 0.0,
+        }
+
+        backend_config = {
+            "init_args": {
+                "num_cpus": 2,
+            },
+            "client_resources": client_resources,
+        }
+
+    else:
+        client_resources = {
+            "num_cpus": 2,
+            "num_gpus": 1.0 if torch.cuda.is_available() else 0.0,
+        }
+
+        backend_config = {
+            "client_resources": client_resources,
+        }
 
     summaries: list[dict[str, Any]] = []
 
@@ -342,7 +358,7 @@ def main() -> None:
                 server_app=server_app,
                 client_app=client_app,
                 num_supernodes=parameters_federated.NUM_PARTITIONS,
-                backend_config={"client_resources": client_resources},
+                backend_config=backend_config,
             )
 
             run_history = collector.dataframe(run_number, seed)

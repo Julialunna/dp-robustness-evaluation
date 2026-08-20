@@ -1,0 +1,46 @@
+Traceback (most recent call last):
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1189, in wait
+    return self._wait(timeout=timeout)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1911, in _wait
+    time.sleep(delay)
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/simulation/run_simulation.py", line 383, in _main_loop
+    vce.start_vce(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/server/superlink/fleet/vce/vce_api.py", line 384, in start_vce
+    run_api(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/server/superlink/fleet/vce/vce_api.py", line 261, in run_api
+    backend.terminate()
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/server/superlink/fleet/vce/backend/raybackend.py", line 195, in terminate
+    ray.shutdown()
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/ray/_private/client_mode_hook.py", line 103, in wrapper
+    return func(*args, **kwargs)
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/ray/_private/worker.py", line 1860, in shutdown
+    _global_node.kill_all_processes(check_alive=False, allow_graceful=True)
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/ray/_private/node.py", line 1643, in kill_all_processes
+    self._kill_process_type(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/ray/_private/node.py", line 1443, in _kill_process_type
+    self._kill_process_impl(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/ray/_private/node.py", line 1499, in _kill_process_impl
+    process.wait(timeout_seconds)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1202, in wait
+    self._wait(timeout=sigint_timeout)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1911, in _wait
+    time.sleep(delay)
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/main.py", line 357, in main
+    run_simulation(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/simulation/run_simulation.py", line 238, in run_simulation
+    _ = _run_simulation(
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/simulation/run_simulation.py", line 523, in _run_simulation
+    updated_context = _main_loop(*args)
+  File "/Users/julialuna/dp-robustness-evaluation/julia-FL-SGD-DP/julia_dpsgd_work/.venv/lib/python3.9/site-packages/flwr/simulation/run_simulation.py", line 421, in _main_loop
+    raise RuntimeError("Exception in ServerApp thread")
+RuntimeError: Exception in ServerApp thread

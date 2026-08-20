@@ -3,3 +3,12 @@ venv/
 __pycache__/
 *.pyc
 
+
+# Ambientes virtuais Python
+**/.venv/
+**/venv/
+
+# Arquivos temporários
+**/__pycache__/
+*.py[cod]
+.DS_Store

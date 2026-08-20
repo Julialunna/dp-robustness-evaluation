@@ -16,6 +16,8 @@ import parameters_federated
 import models
 
 fds = None
+PUBLIC_MEAN = None
+PUBLIC_STD = None
 
 def get_device():
     if torch.cuda.is_available():
@@ -77,16 +79,18 @@ def _checkpoint_mlp_matches(checkpoint):
 
 
 def _apply_image_transforms(dataset):
-    if parameters_federated.DATASET == "mnist":
-        pytorch_transforms = Compose([
-            ToTensor(),
-            Normalize(
-                (0.1307,),
-                (0.3081,),
-            ),
-        ])
-    else:
-        pytorch_transforms = Compose([ToTensor()])
+    # if parameters_federated.DATASET == "mnist":
+    #     pytorch_transforms = Compose([
+    #         ToTensor(),
+    #         Normalize(
+    #             (0.1307,),
+    #             (0.3081,),
+    #         ),
+    #     ])
+    # else:
+    #     pytorch_transforms = Compose([ToTensor()])
+    pytorch_transforms = Compose([ToTensor()])
+
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(image) for image in batch["image"]]
@@ -105,7 +109,7 @@ def resize_to_foundation_input(images, device, image_size=224):
     if images.dim() == 3:
         images = images.unsqueeze(1)
         
-    if parameters_federated.FOUNDATION_MODEL != "mlp":
+    if parameters_federated.DATASET != "mnist":
         if images.size(1) == 1:
             images = images.repeat(1, 3, 1, 1)
 
@@ -134,20 +138,51 @@ def normalize_for_foundation(images, device):
     return (images - imagenet_mean) / imagenet_std
 
 
-def prepare_images_for_extractor(images, extractor, device, image_size=224):
-    images = resize_to_foundation_input(images, device, image_size=image_size)
+def prepare_images_for_extractor(
+    images,
+    extractor,
+    device,
+    image_size=224,
+):
+    images = resize_to_foundation_input(
+        images,
+        device,
+        image_size=image_size,
+    )
 
-    if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
-        images = normalize_for_foundation(images, device)
+    if parameters_federated.FOUNDATION_MODEL in {"cnn", "mlp"}:
+        images = normalize_for_custom_extractor(
+            images,
+            device,
+        )
+
+    elif parameters_federated.FOUNDATION_MODEL == "dinov2_s":
+        images = normalize_for_foundation(
+            images,
+            device,
+        )
 
     return images
 
 
 def preprocess_image(images, device, image_size=224, extractor=None):
-    images = resize_to_foundation_input(images, device, image_size=image_size)
+    images = resize_to_foundation_input(
+        images,
+        device,
+        image_size=image_size,
+    )
 
-    if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
-        images = normalize_for_foundation(images, device)
+    if parameters_federated.FOUNDATION_MODEL in {"cnn", "mlp"}:
+        images = normalize_for_custom_extractor(
+            images,
+            device,
+        )
+
+    elif parameters_federated.FOUNDATION_MODEL == "dinov2_s":
+        images = normalize_for_foundation(
+            images,
+            device,
+        )
 
     return images
 
@@ -201,6 +236,8 @@ def get_public_private_splits():
 
 def pretrain_extractor(device=None):
     device = device or get_device()
+    if parameters_federated.FOUNDATION_MODEL in {"cnn", "mlp"}:
+        initialize_public_stats()
     public_dataset, private_dataset = get_public_private_splits()
     pretrain_data = _apply_image_transforms(public_dataset)
 
@@ -365,17 +402,19 @@ def extract_embeddings_from_loader(
 
     generator = None
     if image_noise_seed is not None:
-        generator = torch.Generator(device="cpu").manual_seed(image_noise_seed)
+        generator = torch.Generator(device="cpu").manual_seed(
+            image_noise_seed
+        )
 
     embeddings_list = []
     labels_list = []
 
     for batch in loader:
-        images = resize_to_foundation_input(
-            batch["image"],
-            device,
-            image_size=parameters_federated.FOUNDATION_IMAGE_SIZE,
-        )
+    
+        images = batch["image"].to(device).float()
+
+        if images.dim() == 3:
+            images = images.unsqueeze(1)
 
         if image_noise_std > 0:
             noise = torch.randn(
@@ -384,25 +423,54 @@ def extract_embeddings_from_loader(
                 device="cpu",
                 dtype=images.dtype,
             ).to(device)
-            if parameters_federated.DATASET == "mnist":
-                mean = parameters_federated.MNIST_MEAN
-                std = parameters_federated.MNIST_STD
-                images = images * std + mean
-                images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
-                images = (images - mean) / std
-            else:
-                images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
-        if parameters_federated.FOUNDATION_MODEL != "mlp" and parameters_federated.FOUNDATION_MODEL != "cnn":
-            images = normalize_for_foundation(images, device)
+            images = torch.clamp(
+                images + image_noise_std * noise,
+                0.0,
+                1.0,
+            )
+
+        images = resize_to_foundation_input(
+            images,
+            device,
+            image_size=parameters_federated.FOUNDATION_IMAGE_SIZE,
+        )
+
+        if parameters_federated.FOUNDATION_MODEL in {"cnn", "mlp"}:
+            images = normalize_for_custom_extractor(
+                images,
+                device,
+            )
+
+        elif parameters_federated.FOUNDATION_MODEL == "dinov2_s":
+            images = normalize_for_foundation(
+                images,
+                device,
+            )
+
+        else:
+            raise ValueError(
+                "Modelo extrator desconhecido: "
+                f"{parameters_federated.FOUNDATION_MODEL}"
+            )
 
         embeddings = foundation_model(images)
-        labels = _prepare_labels(batch["label"])
 
-        embeddings_list.append(embeddings.cpu())
-        labels_list.append(labels.cpu())
+        labels = _prepare_labels(
+            batch["label"]
+        )
 
-    return torch.cat(embeddings_list, dim=0), torch.cat(labels_list, dim=0)
+        embeddings_list.append(
+            embeddings.cpu()
+        )
+        labels_list.append(
+            labels.cpu()
+        )
+
+    return (
+        torch.cat(embeddings_list, dim=0),
+        torch.cat(labels_list, dim=0),
+    )
 
 
 def build_or_load_embedding_loader(
@@ -522,11 +590,7 @@ def load_data(partition_id: int, num_partitions: int):
         )
 
     pytorch_transforms = Compose([ToTensor()])
-    if parameters_federated.DATASET == "mnist":
-        pytorch_transforms = Compose([
-            ToTensor(),
-            Normalize((parameters_federated.MNIST_MEAN,), (parameters_federated.MNIST_STD,)),
-        ])
+
 
     def apply_transforms(batch):
         batch["image"] = [pytorch_transforms(image) for image in batch["image"]]
@@ -553,6 +617,99 @@ def load_data(partition_id: int, num_partitions: int):
 
     return train_loader, test_loader
 
+
+
+def compute_public_mean_std():
+    public_dataset, _ = get_public_private_splits()
+    public_dataset = _apply_image_transforms(public_dataset)
+
+    loader = DataLoader(
+        public_dataset,
+        batch_size=parameters_federated.PRETRAIN_BATCH_SIZE,
+        shuffle=False,
+    )
+
+    channel_sum = None
+    channel_squared_sum = None
+    num_pixels = 0
+
+    for batch in loader:
+        images = batch["image"].float()
+
+        if channel_sum is None:
+            num_channels = images.size(1)
+
+            channel_sum = torch.zeros(
+                num_channels,
+                dtype=torch.float64,
+            )
+
+            channel_squared_sum = torch.zeros(
+                num_channels,
+                dtype=torch.float64,
+            )
+
+        images = images.to(torch.float64)
+
+        channel_sum += images.sum(
+            dim=(0, 2, 3)
+        )
+
+        channel_squared_sum += (
+            images ** 2
+        ).sum(
+            dim=(0, 2, 3)
+        )
+
+        num_pixels += (
+            images.size(0)
+            * images.size(2)
+            * images.size(3)
+        )
+
+    mean = channel_sum / num_pixels
+
+    variance = (
+        channel_squared_sum / num_pixels
+        - mean ** 2
+    )
+
+    std = torch.sqrt(
+        variance.clamp_min(0.0)
+    ).clamp_min(1e-8)
+
+    mean = mean.float()
+    std = std.float()
+
+    print(
+        "[Public stats] "
+        f"mean={mean.tolist()} | "
+        f"std={std.tolist()}"
+    )
+
+    return mean, std
+
+def initialize_public_stats():
+    global PUBLIC_MEAN, PUBLIC_STD
+
+    if PUBLIC_MEAN is None or PUBLIC_STD is None:
+        PUBLIC_MEAN, PUBLIC_STD = compute_public_mean_std()
+
+    return PUBLIC_MEAN, PUBLIC_STD
+
+def normalize_for_custom_extractor(images, device):
+    mean, std = initialize_public_stats()
+    mean = mean.to(
+        device=device,
+        dtype=images.dtype,
+    ).view(1, -1, 1, 1)
+
+    std = std.to(
+        device=device,
+        dtype=images.dtype,
+    ).view(1, -1, 1, 1)
+
+    return (images - mean) / std.clamp_min(1e-8)
 
 def make_embedding_loader(
     embeddings: torch.Tensor,
