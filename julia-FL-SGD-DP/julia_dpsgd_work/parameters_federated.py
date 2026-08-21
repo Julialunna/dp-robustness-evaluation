@@ -10,7 +10,7 @@ MNIST_MEAN = 0.1307
 MNIST_STD = 0.3081
 
 #para breastmnist num_partitions = 4 e num_classes = 2
-#pathmnist são 9 classes e num_classes = 10
+#pathmnist são 9 classes e num_classes = 9
 NUM_CLASSES = 9
 DATASET = "pathmnist"
 FOUNDATION_MODEL = "dinov2_s"
@@ -69,6 +69,6 @@ FORCE_REGENERATE_SYNTHETICS = False
 RETRAIN_CVAE_EVERY_ROUND = False
 
 EVAL_GAUSSIAN_NOISE_SEED = 1234
-EVAL_GAUSSIAN_NOISE_STD1 = 0.1
-EVAL_GAUSSIAN_NOISE_STD2 = 0.25
-EVAL_GAUSSIAN_NOISE_STD3 = 0.5
+EVAL_GAUSSIAN_NOISE_STD1 = 0.08
+EVAL_GAUSSIAN_NOISE_STD2 = 0.18
+EVAL_GAUSSIAN_NOISE_STD3 = 0.26
