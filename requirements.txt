@@ -8,4 +8,7 @@ huggingface_hub
 httpx
 opacus
 numpy
-autodp
+pandas
+matplotlib
+scikit-learn
+importlib-metadata
