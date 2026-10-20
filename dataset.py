@@ -17,6 +17,8 @@ from torchvision.transforms import Compose, ToTensor
 
 import config
 
+from pathlib import Path
+
 # Evita timeouts e verificações de rede no Hugging Face Hub se a conexão cair
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
@@ -25,10 +27,23 @@ _CACHED_FDS = {}
 
 
 def get_dataset_name(dataset: str = None) -> str:
-    """Retorna o identificador Hugging Face do dataset."""
+    """Retorna o caminho local montado pelo Flautim ou o identificador Hugging Face."""
     ds = dataset or config.DATASET
     if ds == "mnist":
         return "ylecun/mnist"
+
+    # Possíveis locais onde o Flautim ou o usuário montou o dataset
+    candidates = [
+        Path("input/dataset") / f"{ds}_224",
+        Path("/workspace/input/dataset") / f"{ds}_224",
+        Path("medmnist_224") / f"{ds}_224",
+        Path(f"{ds}_224"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and (candidate / "data").exists():
+            return str(candidate.resolve())
+
+    # Fallback para o identificador Hugging Face (modo offline ou download)
     return f"danjacobellis/{ds}_224"
 
 

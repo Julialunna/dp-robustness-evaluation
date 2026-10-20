@@ -1,0 +1,14 @@
+flwr
+flwr[simulation]
+flwr-datasets
+datasets
+torch
+torchvision
+huggingface_hub 
+httpx
+opacus
+numpy
+pandas
+matplotlib
+scikit-learn
+importlib-metadata
