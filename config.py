@@ -116,6 +116,12 @@ LR = 0.001
 #        Decoder: DP
 #     -> embeddings sintéticos -> classificador
 #
+# "cvae_decoder_no_dp"
+#     EXPERIMENTOS A/B (alterando apenas beta)
+#     DINOv2 -> embeddings reais
+#     -> CVAE com encoder e decoder treinados por otimizadores separados, ambos sem DP
+#     -> embeddings sintéticos -> classificador
+#
 # "cvae_decoder_dp"
 #     DINOv2 -> embeddings reais
 #     -> CVAE com:
@@ -123,7 +129,7 @@ LR = 0.001
 #        Decoder: treinamento com DP-SGD
 #     -> embeddings sintéticos -> classificador
 #
-TRAIN_MODE = "cvae_decoder_dp"
+TRAIN_MODE = "cvae_decoder_no_dp"
 
 
 # ----------------------------------------------------------------------
@@ -188,7 +194,7 @@ CVAE_EPOCHS = 10
 CVAE_LR = 0.001
 
 # Peso da divergência KL
-CVAE_BETA = 0.1
+CVAE_BETA = 0.01
 
 
 # ==============================================================================
@@ -209,7 +215,7 @@ TEST_EMBEDDINGS_CACHE_DIR = (
 
 # Alterado de 4 para 5 porque o método de geração
 # mudou e não queremos reutilizar caches antigos
-SYNTHETIC_CACHE_VERSION = 5
+SYNTHETIC_CACHE_VERSION = 6
 
 
 # Se True, ignora o cache sintético existente
@@ -229,7 +235,7 @@ EVAL_GAUSSIAN_NOISE_SEED = 1234
 
 # Níveis de ruído gaussiano adicionados às imagens
 EVAL_GAUSSIAN_NOISE_STD1 = 0.08
-EVAL_GAUSSIAN_NOISE_STD2 = 0.16
+EVAL_GAUSSIAN_NOISE_STD2 = 0.18
 EVAL_GAUSSIAN_NOISE_STD3 = 0.26
 
 
@@ -238,7 +244,7 @@ EVAL_GAUSSIAN_NOISE_STD3 = 0.26
 # ==============================================================================
 
 # Número de repetições do experimento
-NUM_RUNS = 5
+NUM_RUNS = 10
 
 # Seeds utilizadas nos experimentos
 GRID_SEEDS = [

@@ -19,9 +19,10 @@ import config
 
 from pathlib import Path
 
-# Evita timeouts e verificações de rede no Hugging Face Hub se a conexão cair
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+# No Mac/local, permita download do Hugging Face quando o dataset ainda não estiver em disco.
+# Se quiser trabalhar totalmente offline depois de baixar tudo, exporte manualmente:
+#   HF_HUB_OFFLINE=1
+#   HF_DATASETS_OFFLINE=1
 
 _CACHED_FDS = {}
 

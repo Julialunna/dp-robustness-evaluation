@@ -5,7 +5,7 @@ Cada cliente é responsável por:
 1. Extrair os embeddings das suas imagens locais usando o extrator DINOv2 oficial.
 2. Treinar no modo configurado:
    - "baseline": Treina o classificador diretamente nos embeddings reais do DINO.
-   - "cvae_sem_dp" / "cvae_dp" / "cvae_decoder_dp": Treina um CVAE local e gera embeddings sintéticos.
+   - "cvae_sem_dp" / "cvae_dp" / "cvae_decoder_no_dp" / "cvae_decoder_dp": Treina um CVAE local e gera embeddings sintéticos.
 3. Avaliar o classificador nas suas amostras locais de teste.
 """
 
@@ -439,6 +439,15 @@ class FlowerClient(NumPyClient):
 
         if (
             config.TRAIN_MODE
+            == "cvae_decoder_no_dp"
+        ):
+            dp_status = (
+                "sem DP, com encoder/decoder em otimizadores separados "
+                "(Experimento A)"
+            )
+
+        elif (
+            config.TRAIN_MODE
             == "cvae_decoder_dp"
         ):
             dp_status = (
@@ -464,6 +473,54 @@ class FlowerClient(NumPyClient):
         )
 
         if (
+            config.TRAIN_MODE
+            == "cvae_decoder_no_dp"
+        ):
+            result = (
+                dp_cvae
+                .train_local_decoder_no_dp_cvae(
+                    real_embeddings,
+                    real_labels,
+                    input_dim=
+                        self.extractor.embedding_dim,
+                    num_classes=
+                        config.NUM_CLASSES,
+                    latent_dim=
+                        config.CVAE_LATENT_DIM,
+                    hidden_dim=
+                        config.CVAE_HIDDEN_DIM,
+                    batch_size=
+                        config.CVAE_BATCH_SIZE,
+                    epochs=
+                        config.CVAE_EPOCHS,
+                    lr=
+                        config.CVAE_LR,
+                    beta=
+                        config.CVAE_BETA,
+                    device=
+                        self.device,
+                )
+            )
+
+            (
+                synthetic_embeddings,
+                synthetic_labels,
+            ) = (
+                dp_cvae
+                .generate_synthetic_embeddings_from_decoder(
+                    result.decoder,
+                    real_labels=
+                        real_labels,
+                    num_classes=
+                        config.NUM_CLASSES,
+                    latent_dim=
+                        config.CVAE_LATENT_DIM,
+                    device=
+                        self.device,
+                )
+            )
+
+        elif (
             config.TRAIN_MODE
             == "cvae_decoder_dp"
         ):
@@ -582,6 +639,9 @@ class FlowerClient(NumPyClient):
                 "decoder"
                 if config.TRAIN_MODE
                 == "cvae_decoder_dp"
+                else "none_decoder_separated"
+                if config.TRAIN_MODE
+                == "cvae_decoder_no_dp"
                 else "full_cvae"
                 if config.TRAIN_MODE
                 == "cvae_dp"
@@ -609,6 +669,9 @@ class FlowerClient(NumPyClient):
             "ε_decoder"
             if config.TRAIN_MODE
             == "cvae_decoder_dp"
+            else "DP"
+            if config.TRAIN_MODE
+            == "cvae_decoder_no_dp"
             else "ε_CVAE"
         )
 

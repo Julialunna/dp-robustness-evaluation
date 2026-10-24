@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import traceback
@@ -34,7 +35,7 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default=config.DATASET, help="Nome do dataset")
     parser.add_argument("--partitioner", type=str, default=config.PARTITIONER, choices=["iid", "dirichlet"], help="Tipo de partição")
     parser.add_argument("--dirichlet-alpha", type=float, default=config.DIRICHLET_ALPHA, help="Alpha para partição Dirichlet")
-    parser.add_argument("--mode", type=str, default=config.TRAIN_MODE, choices=["baseline", "cvae_sem_dp", "cvae_dp", "cvae_decoder_dp"], help="Modo de treino")
+    parser.add_argument("--mode", type=str, default=config.TRAIN_MODE, choices=["baseline", "cvae_sem_dp", "cvae_dp", "cvae_decoder_no_dp", "cvae_decoder_dp"], help="Modo de treino")
     parser.add_argument("--epsilon", type=float, default=config.TARGET_EPSILON, help="Epsilon para DP-SGD")
     parser.add_argument("--seed", type=int, default=config.BASE_SEED, help="Semente para reprodutibilidade")
     parser.add_argument("--num-rounds", type=int, default=config.NUM_SERVER_ROUNDS, help="Número de rodadas federadas")
@@ -69,6 +70,50 @@ def clear_synthetic_cache() -> None:
     cache_path = Path(config.SYNTHETIC_CACHE_DIR)
     if cache_path.exists():
         shutil.rmtree(cache_path)
+
+
+def get_output_root() -> Path:
+    """Diretório de saída portátil (Mac/Linux). Pode ser sobrescrito por FL_OUTPUT_ROOT."""
+    output_root = Path(os.environ.get("FL_OUTPUT_ROOT", "output")).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    return output_root
+
+
+def write_run_metrics(summary: dict[str, Any]) -> None:
+    """Salva um resumo simples das métricas no diretório de saída."""
+    if summary.get("status") != "ok":
+        return
+
+    metrics = {
+        "accuracy": utils.to_python_scalar(
+            summary.get("final_global_accuracy", 0.0) or 0.0
+        ),
+        "balanced_accuracy": utils.to_python_scalar(
+            summary.get("final_global_balanced_accuracy", 0.0) or 0.0
+        ),
+        "f1_macro": utils.to_python_scalar(
+            summary.get("final_global_f1_macro", 0.0) or 0.0
+        ),
+        "validation_accuracy": utils.to_python_scalar(
+            summary.get("final_validation_accuracy", 0.0) or 0.0
+        ),
+        "best_validation_accuracy": utils.to_python_scalar(
+            summary.get("best_validation_accuracy", 0.0) or 0.0
+        ),
+        "epsilon": float(summary.get("epsilon") or 0.0),
+        "beta": float(config.CVAE_BETA),
+        "seed": int(summary.get("seed", 0)),
+    }
+
+    # Inclui alpha somente quando Dirichlet; o Flautim recebe apenas escalares.
+    if summary.get("dirichlet_alpha") is not None:
+        metrics["dirichlet_alpha"] = float(summary["dirichlet_alpha"])
+
+    metrics_path = get_output_root() / "metrics.json"
+    metrics_path.write_text(
+        json.dumps(metrics, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 class ServerMetricCollector:
@@ -151,7 +196,8 @@ class ServerMetricCollector:
             return pd.DataFrame(columns=["seed", "round"])
 
         df.index.name = "round_index"
-        df = df.sort_index().reset_index(drop=True)
+        df = df.sort_index().reset_index()
+        df = df.rename(columns={"round_index": "round"})
         df.insert(0, "seed", seed)
         return df
 
@@ -179,28 +225,29 @@ class ServerMetricCollector:
             "partitioner": config.PARTITIONER,
             "dirichlet_alpha": config.DIRICHLET_ALPHA if config.PARTITIONER == "dirichlet" else None,
             "server_rounds": config.NUM_SERVER_ROUNDS,
+            "beta": float(config.CVAE_BETA),
             # Métricas Limpas Globais
             "final_global_accuracy": final_centralized.get("centralized_global_accuracy"),
             "final_global_balanced_accuracy": final_centralized.get("centralized_global_balanced_accuracy"),
             "final_global_f1_macro": final_centralized.get("centralized_global_f1_macro"),
             # Ruído σ = 0.10
-            "acc_noise_010": final_centralized.get("centralized_accuracy_noise_010"),
-            "balanced_acc_noise_010": final_centralized.get("centralized_balanced_accuracy_noise_010"),
-            "f1_noise_010": final_centralized.get("centralized_f1_noise_010"),
-            "retention_acc_010": final_centralized.get("centralized_retention_accuracy_010"),
-            "retention_f1_010": final_centralized.get("centralized_retention_f1_010"),
+            "acc_noise_008": final_centralized.get("centralized_accuracy_noise_008"),
+            "balanced_acc_noise_008": final_centralized.get("centralized_balanced_accuracy_noise_008"),
+            "f1_noise_008": final_centralized.get("centralized_f1_noise_008"),
+            "retention_acc_008": final_centralized.get("centralized_retention_accuracy_008"),
+            "retention_f1_008": final_centralized.get("centralized_retention_f1_008"),
             # Ruído σ = 0.25
-            "acc_noise_025": final_centralized.get("centralized_accuracy_noise_025"),
-            "balanced_acc_noise_025": final_centralized.get("centralized_balanced_accuracy_noise_025"),
-            "f1_noise_025": final_centralized.get("centralized_f1_noise_025"),
-            "retention_acc_025": final_centralized.get("centralized_retention_accuracy_025"),
-            "retention_f1_025": final_centralized.get("centralized_retention_f1_025"),
+            "acc_noise_018": final_centralized.get("centralized_accuracy_noise_018"),
+            "balanced_acc_noise_018": final_centralized.get("centralized_balanced_accuracy_noise_018"),
+            "f1_noise_018": final_centralized.get("centralized_f1_noise_018"),
+            "retention_acc_018": final_centralized.get("centralized_retention_accuracy_018"),
+            "retention_f1_018": final_centralized.get("centralized_retention_f1_018"),
             # Ruído σ = 0.50
-            "acc_noise_050": final_centralized.get("centralized_accuracy_noise_050"),
-            "balanced_acc_noise_050": final_centralized.get("centralized_balanced_accuracy_noise_050"),
-            "f1_noise_050": final_centralized.get("centralized_f1_noise_050"),
-            "retention_acc_050": final_centralized.get("centralized_retention_accuracy_050"),
-            "retention_f1_050": final_centralized.get("centralized_retention_f1_050"),
+            "acc_noise_026": final_centralized.get("centralized_accuracy_noise_026"),
+            "balanced_acc_noise_026": final_centralized.get("centralized_balanced_accuracy_noise_026"),
+            "f1_noise_026": final_centralized.get("centralized_f1_noise_026"),
+            "retention_acc_026": final_centralized.get("centralized_retention_accuracy_026"),
+            "retention_f1_026": final_centralized.get("centralized_retention_f1_026"),
             # Validação Distribuída
             "final_validation_accuracy": final_distributed.get("distributed_accuracy") if final_distributed else None,
             "best_validation_round": best_distributed.get("round") if best_distributed else None,
@@ -220,7 +267,11 @@ def run_single_experiment(args) -> dict[str, Any]:
     )
 
     seed = args.seed
-    output_dir = Path(args.output_dir) if args.output_dir else Path(f"artifacts/experiments/run_{seed}")
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir
+        else get_output_root() / "experiments" / f"run_{seed}"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     collector = ServerMetricCollector(server)
@@ -253,13 +304,24 @@ def run_single_experiment(args) -> dict[str, Any]:
         history_df.to_csv(output_dir / "history.csv", index=False)
 
         summary = collector.build_summary(seed)
-        (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+        (output_dir / "summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        write_run_metrics(summary)
         return summary
 
     except Exception as error:
         error_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         (output_dir / "error.txt").write_text(error_text, encoding="utf-8")
-        return {"seed": seed, "status": "erro", "error": str(error)}
+        failure = {"seed": seed, "status": "erro", "dataset": config.DATASET,
+                   "mode": config.TRAIN_MODE, "partitioner": config.PARTITIONER,
+                   "dirichlet_alpha": config.DIRICHLET_ALPHA if config.PARTITIONER == "dirichlet" else None,
+                   "epsilon": config.TARGET_EPSILON if config.USE_LOCAL_DP_CVAE else None,
+                   "beta": float(config.CVAE_BETA),
+                   "error": str(error)}
+        (output_dir / "summary.json").write_text(json.dumps(failure, indent=2, ensure_ascii=False), encoding="utf-8")
+        return failure
 
     finally:
         utils.release_resources()

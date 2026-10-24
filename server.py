@@ -134,7 +134,7 @@ def get_evaluate_fn(test_loader):
         if server_round == config.NUM_SERVER_ROUNDS:
             # Ruído Nível 1 (σ = 0.10)
             noisy_loader_1 = _get_server_embedding_loader(
-                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD1, "server_noise_010_test.pt"
+                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD1, "server_noise_008_test.pt"
             )
             _, metrics_noisy_1 = models.evaluate_classifier(
                 model, noisy_loader_1, device, num_classes=config.NUM_CLASSES
@@ -147,7 +147,7 @@ def get_evaluate_fn(test_loader):
 
             # Ruído Nível 2 (σ = 0.25)
             noisy_loader_2 = _get_server_embedding_loader(
-                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD2, "server_noise_025_test.pt"
+                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD2, "server_noise_018_test.pt"
             )
             _, metrics_noisy_2 = models.evaluate_classifier(
                 model, noisy_loader_2, device, num_classes=config.NUM_CLASSES
@@ -160,7 +160,7 @@ def get_evaluate_fn(test_loader):
 
             # Ruído Nível 3 (σ = 0.50)
             noisy_loader_3 = _get_server_embedding_loader(
-                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD3, "server_noise_050_test.pt"
+                feat_extractor, test_loader, device, config.EVAL_GAUSSIAN_NOISE_STD3, "server_noise_026_test.pt"
             )
             _, metrics_noisy_3 = models.evaluate_classifier(
                 model, noisy_loader_3, device, num_classes=config.NUM_CLASSES
@@ -188,23 +188,23 @@ def get_evaluate_fn(test_loader):
                 "global_balanced_accuracy": bal_acc_clean,
                 "global_f1_macro": f1_clean,
                 # Ruído 0.10
-                "accuracy_noise_010": acc_n1,
-                "balanced_accuracy_noise_010": bal_acc_n1,
-                "f1_noise_010": f1_n1,
-                "retention_accuracy_010": ret_acc_1,
-                "retention_f1_010": ret_f1_1,
+                "accuracy_noise_008": acc_n1,
+                "balanced_accuracy_noise_008": bal_acc_n1,
+                "f1_noise_008": f1_n1,
+                "retention_accuracy_008": ret_acc_1,
+                "retention_f1_008": ret_f1_1,
                 # Ruído 0.25
-                "accuracy_noise_025": acc_n2,
-                "balanced_accuracy_noise_025": bal_acc_n2,
-                "f1_noise_025": f1_n2,
-                "retention_accuracy_025": ret_acc_2,
-                "retention_f1_025": ret_f1_2,
+                "accuracy_noise_018": acc_n2,
+                "balanced_accuracy_noise_018": bal_acc_n2,
+                "f1_noise_018": f1_n2,
+                "retention_accuracy_018": ret_acc_2,
+                "retention_f1_018": ret_f1_2,
                 # Ruído 0.50
-                "accuracy_noise_050": acc_n3,
-                "balanced_accuracy_noise_050": bal_acc_n3,
-                "f1_noise_050": f1_n3,
-                "retention_accuracy_050": ret_acc_3,
-                "retention_f1_050": ret_f1_3,
+                "accuracy_noise_026": acc_n3,
+                "balanced_accuracy_noise_026": bal_acc_n3,
+                "f1_noise_026": f1_n3,
+                "retention_accuracy_026": ret_acc_3,
+                "retention_f1_026": ret_f1_3,
             }
 
         print(

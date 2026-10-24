@@ -1,1075 +1,151 @@
+"""Baseline ou Experimento B: 3 partições x NUM_RUNS seeds.
+Comando: python run_experiments.py --mode baseline
 """
-Orquestrador Geral de Experimentos.
-"""
-
+import argparse
 import json
+import os
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
-
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-
 import config
 
+SEEDS=list(config.GRID_SEEDS[:config.NUM_RUNS])
+PARTITIONS=[('iid',None,'IID'),('dirichlet',1.0,'Não-IID alpha 1.0'),('dirichlet',0.5,'Não-IID alpha 0.5')]
+MODE='cvae_decoder_no_dp'
+ROOT=Path(os.environ.get('FL_OUTPUT_ROOT', 'output')).resolve()
+BASE=ROOT/'experiments'/f'experiment_B_{config.DATASET}_beta{config.CVAE_BETA}_sigma008_018_026'
 
-SEEDS = config.GRID_SEEDS
-
-
-PARTITIONS = [
-    {
-        "name": "iid",
-        "partitioner": "iid",
-        "alpha": 1.0,
-        "label": "IID",
-    },
-    {
-        "name": "dirichlet_1.0",
-        "partitioner": "dirichlet",
-        "alpha": 1.0,
-        "label": "Dirichlet (α=1.0)",
-    },
-    {
-        "name": "dirichlet_0.5",
-        "partitioner": "dirichlet",
-        "alpha": 0.5,
-        "label": "Dirichlet (α=0.5)",
-    },
+METRICS = [
+ 'final_global_accuracy', 'acc_noise_008', 'acc_noise_018', 'acc_noise_026',
+ 'final_global_balanced_accuracy', 'balanced_acc_noise_008',
+ 'balanced_acc_noise_018', 'balanced_acc_noise_026',
+ 'final_global_f1_macro', 'f1_noise_008', 'f1_noise_018', 'f1_noise_026',
+]
+SUMMARY_COLUMNS = ['dataset', 'mode', 'partitioner', 'dirichlet_alpha'] + [
+ f'{metric}_{stat}' for metric in METRICS for stat in ('mean', 'std')
 ]
 
 
-MODELS_CONFIG = [
-    {
-        "mode": "baseline",
-        "epsilon": 0.0,
-        "label": "Baseline (DINO Puro)",
-        "color": "#1f77b4",
-        "marker": "o",
-    },
-    {
-        "mode": "cvae_sem_dp",
-        "epsilon": 0.0,
-        "label": "CVAE sem DP",
-        "color": "#2ca02c",
-        "marker": "s",
-    },
-    {
-        "mode": "cvae_dp",
-        "epsilon": 3.0,
-        "label": "DP-CVAE (ε=3.0)",
-        "color": "#ff7f0e",
-        "marker": "^",
-    },
-    {
-        "mode": "cvae_dp",
-        "epsilon": 5.0,
-        "label": "DP-CVAE (ε=5.0)",
-        "color": "#d62728",
-        "marker": "v",
-    },
-    {
-        "mode": "cvae_dp",
-        "epsilon": 8.0,
-        "label": "DP-CVAE (ε=8.0)",
-        "color": "#9467bd",
-        "marker": "d",
-    },
-    {
-        "mode": "cvae_decoder_dp",
-        "epsilon": 3.0,
-        "label": "Decoder-DP CVAE (ε=3.0)",
-        "color": "#8c564b",
-        "marker": "P",
-    },
-    {
-        "mode": "cvae_decoder_dp",
-        "epsilon": 5.0,
-        "label": "Decoder-DP CVAE (ε=5.0)",
-        "color": "#e377c2",
-        "marker": "X",
-    },
-    {
-        "mode": "cvae_decoder_dp",
-        "epsilon": 8.0,
-        "label": "Decoder-DP CVAE (ε=8.0)",
-        "color": "#7f7f7f",
-        "marker": "*",
-    },
-]
-
-
-def plot_retention_graphs(
-    results_df: pd.DataFrame,
-    output_dir: Path,
-) -> None:
-
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    noise_levels = [
-        0.0,
-        0.10,
-        0.25,
-        0.50,
-    ]
-
-    noise_labels = [
-        "0.0 (Limpo)",
-        "0.10",
-        "0.25",
-        "0.50",
-    ]
-
-    plt.style.use(
-        "seaborn-v0_8-whitegrid"
-        if "seaborn-v0_8-whitegrid"
-        in plt.style.available
-        else "default"
-    )
-
-    for part in PARTITIONS:
-        part_name = (
-            part["partitioner"]
-        )
-
-        alpha_val = (
-            part["alpha"]
-        )
-
-        part_label = (
-            part["label"]
-        )
-
-        if part_name == "iid":
-            part_df = results_df[
-                results_df[
-                    "partitioner"
-                ] == "iid"
-            ]
-
-        else:
-            part_df = results_df[
-                (
-                    results_df[
-                        "partitioner"
-                    ]
-                    == "dirichlet"
-                )
-                &
-                (
-                    results_df[
-                        "dirichlet_alpha"
-                    ]
-                    == alpha_val
-                )
-            ]
-
-        if part_df.empty:
-            continue
-
-        fig, ax = plt.subplots(
-            figsize=(8, 5.5),
-            dpi=300,
-        )
-
-        for model_cfg in MODELS_CONFIG:
-            mode = model_cfg[
-                "mode"
-            ]
-
-            eps = model_cfg[
-                "epsilon"
-            ]
-
-            label = model_cfg[
-                "label"
-            ]
-
-            color = model_cfg[
-                "color"
-            ]
-
-            marker = model_cfg[
-                "marker"
-            ]
-
-            m_df = part_df[
-                (
-                    part_df[
-                        "mode"
-                    ]
-                    == mode
-                )
-                &
-                (
-                    part_df[
-                        "epsilon"
-                    ]
-                    == eps
-                )
-            ]
-
-            if m_df.empty:
-                continue
-
-            ret_means = [
-                100.0
-            ]
-
-            ret_stds = [
-                0.0
-            ]
-
-            for col in [
-                "retention_acc_010",
-                "retention_acc_025",
-                "retention_acc_050",
-            ]:
-                ret_means.append(
-                    m_df[col].mean()
-                )
-
-                ret_stds.append(
-                    m_df[col].std()
-                )
-
-            ax.errorbar(
-                noise_levels,
-                ret_means,
-                yerr=ret_stds,
-                label=label,
-                color=color,
-                marker=marker,
-                capsize=4,
-                linewidth=2,
-                markersize=6,
-            )
-
-        ax.set_title(
-            (
-                "Retenção de Acurácia "
-                "sob Ruído Gaussiano — "
-                f"{part_label}"
-            ),
-            fontsize=13,
-            fontweight="bold",
-            pad=12,
-        )
-
-        ax.set_xlabel(
-            "Desvio Padrão do Ruído (σ)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_ylabel(
-            "Retenção de Acurácia (%)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_xticks(
-            noise_levels
-        )
-
-        ax.set_xticklabels(
-            noise_labels
-        )
-
-        ax.set_ylim(
-            bottom=0,
-            top=105,
-        )
-
-        ax.legend(
-            frameon=True,
-            fontsize=10,
-            loc="lower left",
-        )
-
-        ax.grid(
-            True,
-            linestyle="--",
-            alpha=0.6,
-        )
-
-        plot_path = (
-            output_dir
-            / (
-                "retencao_acuracia_"
-                f"{part['name']}.png"
-            )
-        )
-
-        fig.tight_layout()
-        fig.savefig(plot_path)
-        plt.close(fig)
-
-        print(
-            f"  📊 Gráfico salvo: "
-            f"{plot_path}"
-        )
-
-        fig, ax = plt.subplots(
-            figsize=(8, 5.5),
-            dpi=300,
-        )
-
-        for model_cfg in MODELS_CONFIG:
-            mode = model_cfg[
-                "mode"
-            ]
-
-            eps = model_cfg[
-                "epsilon"
-            ]
-
-            label = model_cfg[
-                "label"
-            ]
-
-            color = model_cfg[
-                "color"
-            ]
-
-            marker = model_cfg[
-                "marker"
-            ]
-
-            m_df = part_df[
-                (
-                    part_df[
-                        "mode"
-                    ]
-                    == mode
-                )
-                &
-                (
-                    part_df[
-                        "epsilon"
-                    ]
-                    == eps
-                )
-            ]
-
-            if m_df.empty:
-                continue
-
-            ret_means = [
-                100.0
-            ]
-
-            ret_stds = [
-                0.0
-            ]
-
-            for col in [
-                "retention_f1_010",
-                "retention_f1_025",
-                "retention_f1_050",
-            ]:
-                ret_means.append(
-                    m_df[col].mean()
-                )
-
-                ret_stds.append(
-                    m_df[col].std()
-                )
-
-            ax.errorbar(
-                noise_levels,
-                ret_means,
-                yerr=ret_stds,
-                label=label,
-                color=color,
-                marker=marker,
-                capsize=4,
-                linewidth=2,
-                markersize=6,
-            )
-
-        ax.set_title(
-            (
-                "Retenção de F1-Score "
-                "(Macro) sob Ruído — "
-                f"{part_label}"
-            ),
-            fontsize=13,
-            fontweight="bold",
-            pad=12,
-        )
-
-        ax.set_xlabel(
-            "Desvio Padrão do Ruído (σ)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_ylabel(
-            "Retenção de F1-Score (%)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_xticks(
-            noise_levels
-        )
-
-        ax.set_xticklabels(
-            noise_labels
-        )
-
-        ax.set_ylim(
-            bottom=0,
-            top=105,
-        )
-
-        ax.legend(
-            frameon=True,
-            fontsize=10,
-            loc="lower left",
-        )
-
-        ax.grid(
-            True,
-            linestyle="--",
-            alpha=0.6,
-        )
-
-        plot_path = (
-            output_dir
-            / (
-                "retencao_f1_"
-                f"{part['name']}.png"
-            )
-        )
-
-        fig.tight_layout()
-        fig.savefig(plot_path)
-        plt.close(fig)
-
-        print(
-            f"  📊 Gráfico salvo: "
-            f"{plot_path}"
-        )
-
-        fig, ax = plt.subplots(
-            figsize=(8, 5.5),
-            dpi=300,
-        )
-
-        for model_cfg in MODELS_CONFIG:
-            mode = model_cfg[
-                "mode"
-            ]
-
-            eps = model_cfg[
-                "epsilon"
-            ]
-
-            label = model_cfg[
-                "label"
-            ]
-
-            color = model_cfg[
-                "color"
-            ]
-
-            marker = model_cfg[
-                "marker"
-            ]
-
-            m_df = part_df[
-                (
-                    part_df[
-                        "mode"
-                    ]
-                    == mode
-                )
-                &
-                (
-                    part_df[
-                        "epsilon"
-                    ]
-                    == eps
-                )
-            ]
-
-            if m_df.empty:
-                continue
-
-            bal_means = [
-                (
-                    m_df[
-                        "final_global_balanced_accuracy"
-                    ].mean()
-                    * 100
-                )
-            ]
-
-            bal_stds = [
-                (
-                    m_df[
-                        "final_global_balanced_accuracy"
-                    ].std()
-                    * 100
-                )
-            ]
-
-            for col in [
-                "balanced_acc_noise_010",
-                "balanced_acc_noise_025",
-                "balanced_acc_noise_050",
-            ]:
-                bal_means.append(
-                    m_df[col].mean()
-                    * 100
-                )
-
-                bal_stds.append(
-                    m_df[col].std()
-                    * 100
-                )
-
-            ax.errorbar(
-                noise_levels,
-                bal_means,
-                yerr=bal_stds,
-                label=label,
-                color=color,
-                marker=marker,
-                capsize=4,
-                linewidth=2,
-                markersize=6,
-            )
-
-        ax.set_title(
-            (
-                "Acurácia Balanceada "
-                "sob Ruído — "
-                f"{part_label}"
-            ),
-            fontsize=13,
-            fontweight="bold",
-            pad=12,
-        )
-
-        ax.set_xlabel(
-            "Desvio Padrão do Ruído (σ)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_ylabel(
-            "Acurácia Balanceada (%)",
-            fontsize=11,
-            fontweight="bold",
-        )
-
-        ax.set_xticks(
-            noise_levels
-        )
-
-        ax.set_xticklabels(
-            noise_labels
-        )
-
-        ax.legend(
-            frameon=True,
-            fontsize=10,
-            loc="lower left",
-        )
-
-        ax.grid(
-            True,
-            linestyle="--",
-            alpha=0.6,
-        )
-
-        plot_path = (
-            output_dir
-            / (
-                "acuracia_balanceada_"
-                f"{part['name']}.png"
-            )
-        )
-
-        fig.tight_layout()
-        fig.savefig(plot_path)
-        plt.close(fig)
-
-        print(
-            f"  📊 Gráfico salvo: "
-            f"{plot_path}"
-        )
-
-
-def get_grid_directory(
-    dataset_name: str
-) -> Path:
-
-    base_parent = Path(
-        "artifacts/experiments"
-    )
-
-    base_parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    existing = sorted(
-        [
-            d
-            for d
-            in base_parent.glob(
-                f"grid_{dataset_name}_*"
-            )
-            if d.is_dir()
-        ],
-        key=lambda p:
-            p.stat().st_mtime,
-        reverse=True,
-    )
-
-    for d in existing:
-        if any(
-            d.glob(
-                "*/summary.json"
-            )
-        ):
-            print(
-                "🔄 Retomando execução "
-                f"na pasta existente: {d}\n"
-            )
-
-            return d
-
-    timestamp = (
-        datetime.now()
-        .strftime(
-            "%Y%m%d_%H%M%S"
-        )
-    )
-
-    new_dir = (
-        base_parent
-        / (
-            f"grid_{dataset_name}_"
-            f"{timestamp}"
-        )
-    )
-
-    new_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    return new_dir
-
-
-def run_full_grid():
-    base_dir = get_grid_directory(
-        config.DATASET
-    )
-
-    plots_dir = (
-        base_dir
-        / "plots"
-    )
-
-    total_combinations = (
-        len(PARTITIONS)
-        * len(MODELS_CONFIG)
-        * len(SEEDS)
-    )
-
-    current_run = 0
-
-    print("=" * 80)
-    print(
-        "🚀 INICIANDO GRADE "
-        "COMPLETA DE EXPERIMENTOS"
-    )
-
-    print(
-        f"Dataset: {config.DATASET} | "
-        f"Extrator: "
-        f"{config.EXTRACTOR_NAME}"
-    )
-
-    print(
-        f"Partições "
-        f"({len(PARTITIONS)}): "
-        f"{[p['name'] for p in PARTITIONS]}"
-    )
-
-    print(
-        f"Modalidades "
-        f"({len(MODELS_CONFIG)}): "
-        f"{[m['label'] for m in MODELS_CONFIG]}"
-    )
-
-    print(
-        f"Sementes "
-        f"({len(SEEDS)}): "
-        f"{SEEDS}"
-    )
-
-    print(
-        f"Total de Execuções: "
-        f"{total_combinations}"
-    )
-
-    print(
-        f"Resultados salvos em: "
-        f"{base_dir}"
-    )
-
-    print(
-        "=" * 80
-        + "\n"
-    )
-
-    all_summaries: List[
-        Dict
-    ] = []
-
-    grid_csv_path = (
-        base_dir
-        / "grid_results.csv"
-    )
-
-    for part in PARTITIONS:
-        for model_cfg in MODELS_CONFIG:
-            for seed in SEEDS:
-
-                current_run += 1
-
-                cond_name = (
-                    f"{part['name']}_"
-                    f"{model_cfg['mode']}_"
-                    f"eps"
-                    f"{model_cfg['epsilon']}_"
-                    f"seed{seed}"
-                )
-
-                run_dir = (
-                    base_dir
-                    / cond_name
-                )
-
-                run_dir.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
-
-                print(
-                    f"\n[{current_run}/"
-                    f"{total_combinations}] "
-                    f"Executando: "
-                    f"{part['label']} | "
-                    f"{model_cfg['label']} | "
-                    f"Seed={seed}"
-                )
-
-                summary_json = (
-                    run_dir
-                    / "summary.json"
-                )
-
-                if summary_json.exists():
-                    try:
-                        summary_data = (
-                            json.loads(
-                                summary_json
-                                .read_text(
-                                    encoding="utf-8"
-                                )
-                            )
-                        )
-
-                        if (
-                            summary_data.get(
-                                "status"
-                            )
-                            == "ok"
-                        ):
-                            acc_pct = (
-                                summary_data.get(
-                                    "final_global_accuracy",
-                                    0.0,
-                                )
-                                * 100
-                            )
-
-                            print(
-                                "  ⏭️ Já concluído "
-                                "com sucesso "
-                                f"(Acc={acc_pct:.2f}%). "
-                                "Pulando..."
-                            )
-
-                            summary_data[
-                                "partition_label"
-                            ] = part[
-                                "label"
-                            ]
-
-                            summary_data[
-                                "model_label"
-                            ] = model_cfg[
-                                "label"
-                            ]
-
-                            all_summaries.append(
-                                summary_data
-                            )
-
-                            (
-                                pd.DataFrame(
-                                    all_summaries
-                                )
-                                .to_csv(
-                                    grid_csv_path,
-                                    index=False,
-                                )
-                            )
-
-                            continue
-
-                    except Exception:
-                        pass
-
-                cmd = [
-                    sys.executable,
-                    "main.py",
-
-                    "--dataset",
-                    config.DATASET,
-
-                    "--partitioner",
-                    part["partitioner"],
-
-                    "--dirichlet-alpha",
-                    str(part["alpha"]),
-
-                    "--mode",
-                    model_cfg["mode"],
-
-                    "--epsilon",
-                    str(
-                        model_cfg[
-                            "epsilon"
-                        ]
-                    ),
-
-                    "--seed",
-                    str(seed),
-
-                    "--num-rounds",
-                    str(
-                        config
-                        .NUM_SERVER_ROUNDS
-                    ),
-
-                    "--output-dir",
-                    str(run_dir),
-                ]
-
-                subprocess.run(
-                    cmd
-                )
-
-                summary_json = (
-                    run_dir
-                    / "summary.json"
-                )
-
-                if summary_json.exists():
-                    try:
-                        summary_data = (
-                            json.loads(
-                                summary_json
-                                .read_text(
-                                    encoding="utf-8"
-                                )
-                            )
-                        )
-
-                        summary_data[
-                            "partition_label"
-                        ] = part[
-                            "label"
-                        ]
-
-                        summary_data[
-                            "model_label"
-                        ] = model_cfg[
-                            "label"
-                        ]
-
-                        all_summaries.append(
-                            summary_data
-                        )
-
-                    except Exception as e:
-                        print(
-                            "  ⚠️ Erro ao ler "
-                            f"summary.json: {e}"
-                        )
-
-                else:
-                    all_summaries.append(
-                        {
-                            "seed":
-                                seed,
-
-                            "status":
-                                "erro",
-
-                            "partitioner":
-                                part[
-                                    "partitioner"
-                                ],
-
-                            "dirichlet_alpha":
-                                part[
-                                    "alpha"
-                                ],
-
-                            "mode":
-                                model_cfg[
-                                    "mode"
-                                ],
-
-                            "epsilon":
-                                model_cfg[
-                                    "epsilon"
-                                ],
-
-                            "partition_label":
-                                part[
-                                    "label"
-                                ],
-
-                            "model_label":
-                                model_cfg[
-                                    "label"
-                                ],
-                        }
-                    )
-
-                (
-                    pd.DataFrame(
-                        all_summaries
-                    )
-                    .to_csv(
-                        grid_csv_path,
-                        index=False,
-                    )
-                )
-
-    print(
-        "\n"
-        + "=" * 80
-    )
-
-    print(
-        "✅ GRADE DE EXPERIMENTOS "
-        "CONCLUÍDA!"
-    )
-
-    print(
-        "Resultados consolidados em: "
-        f"{grid_csv_path}"
-    )
-
-    print(
-        "=" * 80
-    )
-
-    results_df = pd.DataFrame(
-        all_summaries
-    )
-
-    valid_df = results_df[
-        results_df[
-            "status"
-        ] == "ok"
-    ]
-
-    if not valid_df.empty:
-        group_cols = [
-            "partitioner",
-            "dirichlet_alpha",
-            "mode",
-            "epsilon",
-            "partition_label",
-            "model_label",
-        ]
-
-        numeric_cols = (
-            valid_df
-            .select_dtypes(
-                include=[np.number]
-            )
-            .columns
-            .drop(
-                "seed",
-                errors="ignore",
-            )
-        )
-
-        summary_agg = (
-            valid_df
-            .groupby(
-                group_cols
-            )[numeric_cols]
-            .agg(
-                [
-                    "mean",
-                    "std",
-                ]
-            )
-            .reset_index()
-        )
-
-        summary_csv_path = (
-            base_dir
-            / "grid_summary.csv"
-        )
-
-        summary_agg.to_csv(
-            summary_csv_path,
-            index=False,
-        )
-
-        print(
-            "📊 Resumo estatístico "
-            f"salvo em: "
-            f"{summary_csv_path}"
-        )
-
-        print(
-            "\n📈 Gerando gráficos "
-            "de retenção e acurácia..."
-        )
-
-        plot_retention_graphs(
-            valid_df,
-            plots_dir,
-        )
-
-        print(
-            "✨ Gráficos finalizados "
-            f"em: {plots_dir}"
-        )
-
-
-if __name__ == "__main__":
-    run_full_grid()
+def experiment_dir(mode):
+ if mode == 'baseline':
+  return ROOT/'experiments'/f'baseline_{config.DATASET}_sigma008_018_026'
+ return BASE
+
+
+def parse_args(argv=None):
+ parser = argparse.ArgumentParser(description=__doc__)
+ parser.add_argument('--mode', choices=['baseline', MODE], default=MODE)
+ return parser.parse_args(argv)
+
+
+def aggregate_baseline(df):
+ """Agrega apenas sucessos; métricas ausentes permanecem ausentes."""
+ rows = []
+ for partitioner, alpha, _ in PARTITIONS:
+  mask = df['status'].eq('ok') & df['partitioner'].eq(partitioner)
+  mask &= df['dirichlet_alpha'].isna() if alpha is None else df['dirichlet_alpha'].eq(alpha)
+  valid = df.loc[mask]
+  row = dict(dataset=config.DATASET, mode='baseline',
+             partitioner=partitioner, dirichlet_alpha=alpha)
+  for metric in METRICS:
+   values = pd.to_numeric(valid.get(metric, pd.Series(dtype=float)), errors='coerce')
+   row[f'{metric}_mean'] = values.mean()
+   row[f'{metric}_std'] = values.std(ddof=1) if values.count() >= 2 else float('nan')
+  rows.append(row)
+ return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
+
+
+def get_specs(mode=MODE):
+ result=[]
+ for partitioner,alpha,label in PARTITIONS:
+  for seed in SEEDS:
+   key=f'{partitioner}_alpha{alpha if alpha is not None else "iid"}_seed{seed}'
+   spec={'seed':int(seed),'dataset':config.DATASET,'extractor':config.EXTRACTOR_NAME,
+         'mode':mode,'partitioner':partitioner,'dirichlet_alpha':alpha,'epsilon':None,
+         'partition_label':label,'model_label':('Baseline DINOv2 + FedAvg' if mode == 'baseline' else 'B: decoder separado sem DP (beta=0.01)'),
+         'beta':float(config.CVAE_BETA),'sigma_1':.08,'sigma_2':.18,'sigma_3':.26,
+         'server_rounds':config.NUM_SERVER_ROUNDS, '_dir':experiment_dir(mode)/key}
+   result.append(spec)
+ return result
+
+def load(spec):
+ f=spec['_dir']/'summary.json'
+ if not f.exists():return None
+ try:
+  d=json.loads(f.read_text())
+  if not isinstance(d, dict):return None
+  for key in ['seed','dataset','mode','partitioner','dirichlet_alpha','epsilon']:
+   if key not in d or d[key]!=spec[key]:return None
+  if 'server_rounds' in d and d['server_rounds'] != spec['server_rounds']:return None
+  if d.get('status') not in ('ok','erro'):return None
+  return d
+ except (OSError,ValueError):return None
+
+def dataframe(specs):
+ rows=[]
+ for s in specs:
+  d=load(s)
+  row={k:v for k,v in s.items() if k!='_dir'}
+  if d:row.update(d)
+  else:row['status']='pendente'
+  rows.append(row)
+ return pd.DataFrame(rows)
+
+def write_state(specs):
+ df=dataframe(specs)
+ base = specs[0]['_dir'].parent
+ if specs[0]['mode'] == 'baseline':
+  temporary = base/'grid_summary.csv.tmp'
+  aggregate_baseline(df).to_csv(temporary, index=False)
+  temporary.replace(base/'grid_summary.csv')
+ else:
+  from result_reporting import publish, make_plots
+
+  publish(df,base,len(specs))
+  make_plots(df,base/'plots')
+ return df
+
+def main():
+ args = parse_args()
+ base = experiment_dir(args.mode)
+ if not SEEDS or len(set(SEEDS))!=len(SEEDS) or len(SEEDS)!=config.NUM_RUNS:
+  raise ValueError('NUM_RUNS e GRID_SEEDS inconsistentes')
+ assert [round(config.EVAL_GAUSSIAN_NOISE_STD1,2),round(config.EVAL_GAUSSIAN_NOISE_STD2,2),round(config.EVAL_GAUSSIAN_NOISE_STD3,2)]==[.08,.18,.26]
+ if args.mode == 'baseline':
+  expected = {'DATASET':'pathmnist', 'EXTRACTOR_NAME':'dinov2_s',
+              'NUM_PARTITIONS':10, 'NUM_SERVER_ROUNDS':20,
+              'LOCAL_EPOCHS':1, 'BATCH_SIZE':256, 'NUM_RUNS':10}
+  for name, value in expected.items():
+   if getattr(config, name) != value:
+    raise ValueError(f'Baseline requer config.{name}={value!r}')
+ base.mkdir(parents=True,exist_ok=True)
+ specs=get_specs(args.mode)
+ print(f'{args.mode}: {len(specs)} runs ({len(SEEDS)} seeds x 3 partições): {SEEDS}',flush=True)
+ write_state(specs)
+ for n,s in enumerate(specs,1):
+  prev=load(s)
+  if prev and prev['status']=='ok':
+   print(f'[{n}/{len(specs)}] {s["partition_label"]} seed={s["seed"]} já concluído',flush=True)
+   continue
+  folder=s['_dir'];folder.mkdir(parents=True,exist_ok=True)
+  cmd=[sys.executable,'main.py','--dataset',config.DATASET,'--partitioner',s['partitioner'],
+       '--dirichlet-alpha',str(s['dirichlet_alpha'] or 1.),'--mode',s['mode'],'--epsilon','0',
+       '--seed',str(s['seed']),'--num-rounds',str(config.NUM_SERVER_ROUNDS),'--output-dir',str(folder)]
+  print(f'[{n}/{len(specs)}] {s["partition_label"]} seed={s["seed"]}',flush=True)
+  with (folder/'stdout.log').open('a') as output:
+   finished=subprocess.run(cmd,stdout=output,stderr=subprocess.STDOUT,check=False)
+  current = load(s)
+  if current is None or (finished.returncode != 0 and current['status'] == 'ok'):
+   failure={k:s[k] for k in ['seed','dataset','mode','partitioner','dirichlet_alpha','epsilon','server_rounds']}
+   failure.update(status='erro', error=f'main.py terminou com {finished.returncode}; veja stdout.log')
+   (folder/'summary.json').write_text(json.dumps(failure,indent=2))
+  write_state(specs)
+ df=write_state(specs)
+ print(f'FIM: {sum(df.status.eq("ok"))}/{len(specs)} sucessos, {sum(df.status.eq("erro"))} falhas.',flush=True)
+ if args.mode == 'baseline':
+  print(f'CSV agregado: {base}/grid_summary.csv', flush=True)
+ else:
+  print(f'CSV simplificado: {ROOT}/grid_results.csv; gráficos em {base}/plots',flush=True)
+
+if __name__=='__main__':main()

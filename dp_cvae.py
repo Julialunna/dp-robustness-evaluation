@@ -390,6 +390,128 @@ def train_local_dp_cvae(
     )
 
 
+
+def train_local_decoder_no_dp_cvae(
+    embeddings: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    input_dim: int = config.EMBEDDING_DIM,
+    num_classes: int = config.NUM_CLASSES,
+    latent_dim: int = config.CVAE_LATENT_DIM,
+    hidden_dim: int = config.CVAE_HIDDEN_DIM,
+    batch_size: int = config.CVAE_BATCH_SIZE,
+    epochs: int = config.CVAE_EPOCHS,
+    lr: float = config.CVAE_LR,
+    beta: float = config.CVAE_BETA,
+    device: torch.device = torch.device("cpu"),
+) -> DecoderDPTrainResult:
+    """
+    Experimento A: mesma arquitetura do modo decoder-only, mas sem DP.
+
+    Encoder e decoder possuem otimizadores separados e são atualizados a partir
+    da mesma loss do CVAE. Não há clipping nem ruído. Isso isola o efeito da DP
+    no decoder quando comparado diretamente com cvae_decoder_dp.
+    """
+
+    dataset = TensorDataset(
+        embeddings.float(),
+        labels.long(),
+    )
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=False,
+    )
+
+    model = CVAE(
+        input_dim=input_dim,
+        num_classes=num_classes,
+        latent_dim=latent_dim,
+        hidden_dim=hidden_dim,
+    ).to(device)
+
+    encoder_errors = ModuleValidator.validate(
+        model.encoder,
+        strict=False,
+    )
+    if encoder_errors:
+        model.encoder = ModuleValidator.fix(model.encoder)
+
+    decoder_errors = ModuleValidator.validate(
+        model.decoder,
+        strict=False,
+    )
+    if decoder_errors:
+        model.decoder = ModuleValidator.fix(model.decoder)
+
+    model.to(device)
+
+    encoder_optimizer = torch.optim.Adam(
+        model.encoder.parameters(),
+        lr=lr,
+    )
+    decoder_optimizer = torch.optim.Adam(
+        model.decoder.parameters(),
+        lr=lr,
+    )
+
+    final_loss = 0.0
+
+    for _ in range(epochs):
+        model.encoder.train()
+        model.decoder.train()
+
+        running_loss = 0.0
+        running_examples = 0
+
+        for x_batch, y_batch in loader:
+            x_batch = x_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            encoder_optimizer.zero_grad(set_to_none=True)
+            decoder_optimizer.zero_grad(set_to_none=True)
+
+            c_batch = one_hot(
+                y_batch,
+                num_classes=num_classes,
+            )
+
+            mu, logvar = model.encoder(
+                x_batch,
+                c_batch,
+            )
+            z = reparameterize(mu, logvar)
+            recon = model.decoder(z, c_batch)
+
+            loss = loss_function(
+                recon,
+                x_batch,
+                mu,
+                logvar,
+                beta=beta,
+            )
+
+            loss.backward()
+            encoder_optimizer.step()
+            decoder_optimizer.step()
+
+            batch_n = y_batch.size(0)
+            running_loss += loss.item() * batch_n
+            running_examples += batch_n
+
+        final_loss = running_loss / max(running_examples, 1)
+
+    model.decoder.eval()
+
+    return DecoderDPTrainResult(
+        decoder=model.decoder,
+        epsilon=None,
+        num_examples=len(dataset),
+        final_loss=float(final_loss),
+    )
+
 def train_local_decoder_dp_cvae(
     embeddings: torch.Tensor,
     labels: torch.Tensor,
