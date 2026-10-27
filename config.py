@@ -16,8 +16,21 @@ from typing import Any, Dict, Optional
 # Opções de dataset: "pathmnist", "breastmnist", "mnist", etc.
 DATASET = "pathmnist"
 
+DATASET_NUM_CLASSES = {
+    "pathmnist": 9,
+    "breastmnist": 2,
+    "mnist": 10,
+    "octmnist": 4,
+    "pneumoniamnist": 2,
+    "dermamnist": 7,
+    "tissuemnist": 8,
+    "organamnist": 11,
+    "organcmnist": 11,
+    "organsmnist": 11,
+}
+
 # Número de classes do dataset (ex: pathmnist=9, breastmnist=2, mnist=10)
-NUM_CLASSES = 9
+NUM_CLASSES = DATASET_NUM_CLASSES.get(DATASET, 9)
 
 # Particionamento dos dados entre clientes federados: "dirichlet" (não-IID) ou "iid"
 PARTITIONER = "dirichlet"
@@ -51,8 +64,9 @@ EMBEDDING_DIM = EXTRACTOR_EMBEDDING_DIMS.get(EXTRACTOR_NAME, 384)
 # ==============================================================================
 # 3. CLASSIFICADOR DOWNSTREAM
 # ==============================================================================
-# Dimensão da camada oculta do EmbeddingClassifier
-CLASSIFIER_HIDDEN_DIM = 128
+# Dimensão da camada oculta inicial do EmbeddingClassifier (256 -> 128 -> num_classes)
+CLASSIFIER_HIDDEN_DIM = 256
+CLASSIFIER_DROPOUT = 0.2
 
 
 # ==============================================================================
@@ -76,8 +90,8 @@ BATCH_SIZE = 256
 # Épocas locais de treino do classificador em cada rodada
 LOCAL_EPOCHS = 1
 
-# Taxa de aprendizado do classificador local
-LR = 0.001
+# Taxa de aprendizado do classificador local (0.0005 validada nos experimentos DINOv2)
+LR = 0.0005
 
 
 # ==============================================================================
@@ -86,24 +100,40 @@ LR = 0.001
 # Modalidade de treino do cliente:
 # - "baseline": DINOv2 direto nos dados reais (sem CVAE)
 # - "cvae_sem_dp": Treina CVAE local sem DP-SGD e gera dados sintéticos
-# - "cvae_dp": Treina CVAE local com DP-SGD (Opacus) usando TARGET_EPSILON
+# - "cvae_dp": Treina CVAE local inteiro com DP-SGD (Opacus) usando TARGET_EPSILON
+# - "cvae_decoder_no_dp": Treina CVAE com otimizadores separados (encoder/decoder) sem DP
+# - "cvae_decoder_dp": Treina CVAE com DP-SGD aplicado somente ao decoder
 TRAIN_MODE = "cvae_dp"
 
-# Se True, habilita DP-SGD no CVAE (sincronizado automaticamente com TRAIN_MODE)
-USE_LOCAL_DP_CVAE = (TRAIN_MODE == "cvae_dp")
+# Flags sincronizadas automaticamente com TRAIN_MODE
+USE_LOCAL_DP_CVAE = TRAIN_MODE in {"cvae_dp", "cvae_decoder_dp"}
+USE_DECODER_ONLY_DP = TRAIN_MODE == "cvae_decoder_dp"
+USE_FULL_CVAE_DP = TRAIN_MODE == "cvae_dp"
+
+
+def _update_train_mode_flags() -> None:
+    global USE_LOCAL_DP_CVAE, USE_DECODER_ONLY_DP, USE_FULL_CVAE_DP
+    USE_LOCAL_DP_CVAE = TRAIN_MODE in {"cvae_dp", "cvae_decoder_dp"}
+    USE_DECODER_ONLY_DP = TRAIN_MODE == "cvae_decoder_dp"
+    USE_FULL_CVAE_DP = TRAIN_MODE == "cvae_dp"
+
+# Padronização (Z-score por cliente) dos embeddings antes de treinar o CVAE
+# e desnormalização após gerar os embeddings sintéticos (essencial para DINOv2)
+NORMALIZE_EMBEDDINGS = True
+EMBEDDING_NORM_EPS = 1e-6
 
 # Hiperparâmetros de Privacidade Diferencial (Opacus)
 TARGET_EPSILON = 5.0
 TARGET_DELTA = 1e-5
 MAX_GRAD_NORM = 1.2
 
-# Hiperparâmetros da arquitetura do CVAE
-CVAE_HIDDEN_DIM = 256
+# Hiperparâmetros da arquitetura do CVAE (validados para DINOv2 384d)
+CVAE_HIDDEN_DIM = 512
 CVAE_LATENT_DIM = 32
-CVAE_BATCH_SIZE = 256
+CVAE_BATCH_SIZE = 128
 CVAE_EPOCHS = 10
 CVAE_LR = 0.001
-CVAE_BETA = 0.1  # Peso da divergência KL (KLD) na loss do CVAE
+CVAE_BETA = 0.01  # Peso da divergência KL (KLD) na loss do CVAE
 
 
 # ==============================================================================
@@ -113,7 +143,7 @@ CVAE_BETA = 0.1  # Peso da divergência KL (KLD) na loss do CVAE
 REAL_EMBEDDINGS_CACHE_DIR = "artifacts/real_embeddings"
 SYNTHETIC_CACHE_DIR = "artifacts/synthetic_embeddings"
 TEST_EMBEDDINGS_CACHE_DIR = "artifacts/test_embeddings"
-SYNTHETIC_CACHE_VERSION = 4
+SYNTHETIC_CACHE_VERSION = 5
 
 # Controle de regeneração de cache
 FORCE_REGENERATE_SYNTHETICS = False
@@ -142,6 +172,7 @@ NUM_RUNS = 5
 # Sementes padrão para o Grid Search (5 repetições)
 GRID_SEEDS = [2026, 2027, 2028, 2029, 2030]
 BASE_SEED = 2026
+CURRENT_SEED = BASE_SEED
 
 
 # ==============================================================================
@@ -156,6 +187,7 @@ def get_env_vars() -> Dict[str, str]:
         "FLWR_TRAIN_MODE": str(TRAIN_MODE),
         "FLWR_TARGET_EPSILON": str(TARGET_EPSILON),
         "FLWR_NUM_SERVER_ROUNDS": str(NUM_SERVER_ROUNDS),
+        "FLWR_CURRENT_SEED": str(CURRENT_SEED),
     }
 
 
@@ -166,26 +198,30 @@ def apply_config(
     train_mode: Optional[str] = None,
     target_epsilon: Optional[float] = None,
     num_server_rounds: Optional[int] = None,
+    seed: Optional[int] = None,
 ) -> None:
     """
     Aplica configuração dinâmica válida para o processo principal E para todos
     os subprocessos/workers Ray através de variáveis de ambiente e arquivo ativo.
     """
-    global DATASET, PARTITIONER, DIRICHLET_ALPHA, TRAIN_MODE, USE_LOCAL_DP_CVAE, TARGET_EPSILON, NUM_SERVER_ROUNDS, EMBEDDING_DIM
+    global DATASET, NUM_CLASSES, PARTITIONER, DIRICHLET_ALPHA, TRAIN_MODE, USE_LOCAL_DP_CVAE, TARGET_EPSILON, NUM_SERVER_ROUNDS, EMBEDDING_DIM, CURRENT_SEED
 
     if dataset is not None:
         DATASET = dataset
+        NUM_CLASSES = DATASET_NUM_CLASSES.get(DATASET, NUM_CLASSES)
     if partitioner is not None:
         PARTITIONER = partitioner
     if dirichlet_alpha is not None:
         DIRICHLET_ALPHA = float(dirichlet_alpha)
     if train_mode is not None:
         TRAIN_MODE = train_mode
-        USE_LOCAL_DP_CVAE = (TRAIN_MODE == "cvae_dp")
+        _update_train_mode_flags()
     if target_epsilon is not None:
         TARGET_EPSILON = float(target_epsilon)
     if num_server_rounds is not None:
         NUM_SERVER_ROUNDS = int(num_server_rounds)
+    if seed is not None:
+        CURRENT_SEED = int(seed)
 
     EMBEDDING_DIM = EXTRACTOR_EMBEDDING_DIMS.get(EXTRACTOR_NAME, 384)
 
@@ -201,12 +237,16 @@ def apply_config(
             json.dumps(
                 {
                     "DATASET": DATASET,
+                    "NUM_CLASSES": NUM_CLASSES,
                     "PARTITIONER": PARTITIONER,
                     "DIRICHLET_ALPHA": DIRICHLET_ALPHA,
                     "TRAIN_MODE": TRAIN_MODE,
                     "USE_LOCAL_DP_CVAE": USE_LOCAL_DP_CVAE,
+                    "USE_DECODER_ONLY_DP": USE_DECODER_ONLY_DP,
+                    "USE_FULL_CVAE_DP": USE_FULL_CVAE_DP,
                     "TARGET_EPSILON": TARGET_EPSILON,
                     "NUM_SERVER_ROUNDS": NUM_SERVER_ROUNDS,
+                    "CURRENT_SEED": CURRENT_SEED,
                 },
                 indent=2,
             ),
@@ -224,13 +264,21 @@ def clear_active_config() -> None:
             active_cfg_path.unlink()
         except Exception:
             pass
-    for k in ["FLWR_DATASET", "FLWR_PARTITIONER", "FLWR_DIRICHLET_ALPHA", "FLWR_TRAIN_MODE", "FLWR_TARGET_EPSILON", "FLWR_NUM_SERVER_ROUNDS"]:
+    for k in [
+        "FLWR_DATASET",
+        "FLWR_PARTITIONER",
+        "FLWR_DIRICHLET_ALPHA",
+        "FLWR_TRAIN_MODE",
+        "FLWR_TARGET_EPSILON",
+        "FLWR_NUM_SERVER_ROUNDS",
+        "FLWR_CURRENT_SEED",
+    ]:
         os.environ.pop(k, None)
 
 
 def _sync_with_runtime() -> None:
     """Sincroniza as variáveis de config com .active_config.json ou os.environ se existirem."""
-    global DATASET, PARTITIONER, DIRICHLET_ALPHA, TRAIN_MODE, USE_LOCAL_DP_CVAE, TARGET_EPSILON, NUM_SERVER_ROUNDS, EMBEDDING_DIM
+    global DATASET, NUM_CLASSES, PARTITIONER, DIRICHLET_ALPHA, TRAIN_MODE, USE_LOCAL_DP_CVAE, TARGET_EPSILON, NUM_SERVER_ROUNDS, EMBEDDING_DIM, CURRENT_SEED
 
     # Prioridade 1: Arquivo ativo em disco
     active_cfg_path = Path("artifacts/.active_config.json")
@@ -239,17 +287,20 @@ def _sync_with_runtime() -> None:
             data = json.loads(active_cfg_path.read_text(encoding="utf-8"))
             if "DATASET" in data:
                 DATASET = data["DATASET"]
+                NUM_CLASSES = int(data.get("NUM_CLASSES", DATASET_NUM_CLASSES.get(DATASET, NUM_CLASSES)))
             if "PARTITIONER" in data:
                 PARTITIONER = data["PARTITIONER"]
             if "DIRICHLET_ALPHA" in data:
                 DIRICHLET_ALPHA = float(data["DIRICHLET_ALPHA"])
             if "TRAIN_MODE" in data:
                 TRAIN_MODE = data["TRAIN_MODE"]
-                USE_LOCAL_DP_CVAE = (TRAIN_MODE == "cvae_dp")
+                _update_train_mode_flags()
             if "TARGET_EPSILON" in data:
                 TARGET_EPSILON = float(data["TARGET_EPSILON"])
             if "NUM_SERVER_ROUNDS" in data:
                 NUM_SERVER_ROUNDS = int(data["NUM_SERVER_ROUNDS"])
+            if "CURRENT_SEED" in data:
+                CURRENT_SEED = int(data["CURRENT_SEED"])
             return
         except Exception:
             pass
@@ -257,17 +308,20 @@ def _sync_with_runtime() -> None:
     # Prioridade 2: Variáveis de ambiente
     if "FLWR_DATASET" in os.environ:
         DATASET = os.environ["FLWR_DATASET"]
+        NUM_CLASSES = DATASET_NUM_CLASSES.get(DATASET, NUM_CLASSES)
     if "FLWR_PARTITIONER" in os.environ:
         PARTITIONER = os.environ["FLWR_PARTITIONER"]
     if "FLWR_DIRICHLET_ALPHA" in os.environ:
         DIRICHLET_ALPHA = float(os.environ["FLWR_DIRICHLET_ALPHA"])
     if "FLWR_TRAIN_MODE" in os.environ:
         TRAIN_MODE = os.environ["FLWR_TRAIN_MODE"]
-        USE_LOCAL_DP_CVAE = (TRAIN_MODE == "cvae_dp")
+        _update_train_mode_flags()
     if "FLWR_TARGET_EPSILON" in os.environ:
         TARGET_EPSILON = float(os.environ["FLWR_TARGET_EPSILON"])
     if "FLWR_NUM_SERVER_ROUNDS" in os.environ:
         NUM_SERVER_ROUNDS = int(os.environ["FLWR_NUM_SERVER_ROUNDS"])
+    if "FLWR_CURRENT_SEED" in os.environ:
+        CURRENT_SEED = int(os.environ["FLWR_CURRENT_SEED"])
 
 
 _sync_with_runtime()

@@ -16,19 +16,27 @@ import config
 
 
 class EmbeddingClassifier(nn.Module):
-    """Classificador MLP raso que opera sobre os vetores de embedding."""
+    """Classificador MLP regularizado (LayerNorm + GELU + Dropout) que opera sobre os vetores de embedding."""
 
     def __init__(
         self,
         input_dim: int = config.EMBEDDING_DIM,
         hidden_dim: int = config.CLASSIFIER_HIDDEN_DIM,
         num_classes: int = config.NUM_CLASSES,
+        dropout: float = config.CLASSIFIER_DROPOUT,
     ) -> None:
         super().__init__()
+        reduced_dim = max(hidden_dim // 2, num_classes)
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, num_classes),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, reduced_dim),
+            nn.LayerNorm(reduced_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(reduced_dim, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

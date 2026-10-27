@@ -33,9 +33,19 @@ class BaseFeatureExtractor(nn.Module, ABC):
         pass
 
     @abstractmethod
+    def resize_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
+        """Ajusta canais e redimensiona as imagens mantendo valores em [0, 1]."""
+        pass
+
+    @abstractmethod
+    def normalize_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
+        """Aplica a normalização estatística necessária para o extrator (ex: ImageNet)."""
+        pass
+
     def preprocess_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
         """Aplica redimensionamento e normalização necessários para o modelo."""
-        pass
+        images = self.resize_images(images, device=device)
+        return self.normalize_images(images, device=device)
 
     @abstractmethod
     def forward(self, images: torch.Tensor) -> torch.Tensor:
@@ -97,7 +107,7 @@ class DinoV2Extractor(BaseFeatureExtractor):
     def input_size(self) -> int:
         return self._input_size
 
-    def preprocess_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def resize_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
         images = images.to(device).float()
 
         # Adiciona dimensão de canal se necessário (B, H, W) -> (B, 1, H, W)
@@ -117,7 +127,10 @@ class DinoV2Extractor(BaseFeatureExtractor):
                 align_corners=False,
             )
 
-        # Aplica normalização ImageNet
+        return images
+
+    def normalize_images(self, images: torch.Tensor, device: torch.device) -> torch.Tensor:
+        images = images.to(device).float()
         mean = self.imagenet_mean.to(device=device, dtype=images.dtype)
         std = self.imagenet_std.to(device=device, dtype=images.dtype)
         return (images - mean) / std
@@ -178,21 +191,21 @@ def extract_embeddings_from_loader(
     for batch in loader:
         images = batch["image"].float()
 
-        if images.dim() == 3:
-            images = images.unsqueeze(1)
+        # 1. Ajusta canais (1->3) e redimensiona para o tamanho do extrator (224x224) em [0, 1]
+        images = extractor.resize_images(images, device=device)
 
-        # Injeção de ruído gaussiano nas imagens originais
+        # 2. Injeção de ruído gaussiano nas imagens redimensionadas em [0, 1]
         if image_noise_std > 0:
             noise = torch.randn(
                 images.shape,
                 generator=generator,
                 device="cpu",
                 dtype=images.dtype,
-            )
+            ).to(device)
             images = torch.clamp(images + image_noise_std * noise, 0.0, 1.0)
 
-        # Pré-processamento específico do extrator (resize + norm)
-        images = extractor.preprocess_images(images, device=device)
+        # 3. Normalização estatística (ImageNet mean/std) e extração de features
+        images = extractor.normalize_images(images, device=device)
         embeddings = extractor(images)
 
         # Prepara rótulos

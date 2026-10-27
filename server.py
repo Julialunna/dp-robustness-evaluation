@@ -51,9 +51,15 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 
 
 def fit_metrics_aggregation_fn(metrics: List[Tuple[int, Metrics]]) -> Metrics:
-    """Agrega métricas reportadas no fit dos clientes (ex: loss média do DP-CVAE)."""
+    """Agrega métricas reportadas no fit dos clientes (ex: loss média e epsilon do DP-CVAE)."""
+    epsilons = [m["epsilon_cvae"] for _, m in metrics if "epsilon_cvae" in m]
     cvae_losses = [m["cvae_loss"] for _, m in metrics if "cvae_loss" in m]
     aggregated = {}
+
+    if epsilons:
+        mean_eps = sum(epsilons) / len(epsilons)
+        aggregated["epsilon_cvae_mean"] = mean_eps
+        print(f"[Servidor] Epsilon médio dos CVAEs locais: {mean_eps:.3f}")
 
     if cvae_losses:
         mean_cvae_loss = sum(cvae_losses) / len(cvae_losses)
@@ -65,7 +71,7 @@ def fit_metrics_aggregation_fn(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 
 def _server_embedding_metadata(test_loader, image_noise_std: float) -> dict:
     return {
-        "cache_version": 2,
+        "cache_version": 3,
         "dataset": dataset.get_dataset_name(),
         "num_test_examples": len(test_loader.dataset),
         "extractor_name": config.EXTRACTOR_NAME,
@@ -116,6 +122,7 @@ def get_evaluate_fn(test_loader):
             input_dim=feat_extractor.embedding_dim,
             hidden_dim=config.CLASSIFIER_HIDDEN_DIM,
             num_classes=config.NUM_CLASSES,
+            dropout=config.CLASSIFIER_DROPOUT,
         )
         models.set_weights(model, parameters)
 
@@ -226,6 +233,7 @@ def server_fn(context: Context) -> ServerAppComponents:
         input_dim=config.EMBEDDING_DIM,
         hidden_dim=config.CLASSIFIER_HIDDEN_DIM,
         num_classes=config.NUM_CLASSES,
+        dropout=config.CLASSIFIER_DROPOUT,
     )
     initial_parameters = ndarrays_to_parameters(models.get_weights(initial_model))
 

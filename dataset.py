@@ -6,6 +6,7 @@ utilizando Flower Datasets (flwr-datasets).
 """
 
 import os
+from pathlib import Path
 from typing import Tuple
 
 import torch
@@ -17,18 +18,25 @@ from torchvision.transforms import Compose, ToTensor
 
 import config
 
-# Evita timeouts e verificações de rede no Hugging Face Hub se a conexão cair
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
-
 _CACHED_FDS = {}
 
 
 def get_dataset_name(dataset: str = None) -> str:
-    """Retorna o identificador Hugging Face do dataset."""
+    """Retorna o caminho local montado pelo Flautim/usuário ou o identificador Hugging Face."""
     ds = dataset or config.DATASET
     if ds == "mnist":
         return "ylecun/mnist"
+
+    candidates = [
+        Path("input/dataset") / f"{ds}_224",
+        Path("/workspace/input/dataset") / f"{ds}_224",
+        Path("medmnist_224") / f"{ds}_224",
+        Path(f"{ds}_224"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and (candidate / "data").exists():
+            return str(candidate.resolve())
+
     return f"danjacobellis/{ds}_224"
 
 
@@ -59,7 +67,13 @@ def get_client_loaders(
     """
     global _CACHED_FDS
 
-    cache_key = (config.DATASET, config.PARTITIONER, config.DIRICHLET_ALPHA, num_partitions)
+    cache_key = (
+        config.DATASET,
+        config.PARTITIONER,
+        config.DIRICHLET_ALPHA,
+        num_partitions,
+        config.CURRENT_SEED,
+    )
 
     if cache_key not in _CACHED_FDS:
         if config.PARTITIONER == "dirichlet":
@@ -70,6 +84,7 @@ def get_client_loaders(
                 min_partition_size=10,
                 self_balancing=True,
                 shuffle=True,
+                seed=config.CURRENT_SEED,
             )
             validation_partitioner = DirichletPartitioner(
                 num_partitions=num_partitions,
@@ -78,6 +93,7 @@ def get_client_loaders(
                 min_partition_size=10,
                 self_balancing=True,
                 shuffle=True,
+                seed=config.CURRENT_SEED,
             )
         elif config.PARTITIONER == "iid":
             partitioner = IidPartitioner(num_partitions=num_partitions)

@@ -43,9 +43,14 @@ class Encoder(nn.Module):
 
         self.net = nn.Sequential(
             nn.Linear(enc_in, hidden_dim),
-            nn.ReLU(),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
         )
 
         self.fc_mu = nn.Linear(hidden_dim, latent_dim)
@@ -75,13 +80,17 @@ class Decoder(nn.Module):
         self.latent_dim = latent_dim
 
         dec_in = latent_dim + num_classes
-        reduced_dim = max(hidden_dim // 2, latent_dim)
 
         self.net = nn.Sequential(
-            nn.Linear(dec_in, reduced_dim),
-            nn.ReLU(),
-            nn.Linear(reduced_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(dec_in, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
             nn.Linear(hidden_dim, input_dim),
         )
 
@@ -153,6 +162,14 @@ def loss_function(
 @dataclass
 class DPCVAETrainResult:
     model: CVAE
+    epsilon: Optional[float]
+    num_examples: int
+    final_loss: float
+
+
+@dataclass
+class DecoderDPTrainResult:
+    decoder: Decoder
     epsilon: Optional[float]
     num_examples: int
     final_loss: float
@@ -244,6 +261,197 @@ def train_local_dp_cvae(
         num_examples=len(dataset),
         final_loss=float(final_loss),
     )
+
+
+def train_local_decoder_no_dp_cvae(
+    embeddings: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    input_dim: int = config.EMBEDDING_DIM,
+    num_classes: int = config.NUM_CLASSES,
+    latent_dim: int = config.CVAE_LATENT_DIM,
+    hidden_dim: int = config.CVAE_HIDDEN_DIM,
+    batch_size: int = config.CVAE_BATCH_SIZE,
+    epochs: int = config.CVAE_EPOCHS,
+    lr: float = config.CVAE_LR,
+    beta: float = config.CVAE_BETA,
+    device: torch.device = torch.device("cpu"),
+) -> DecoderDPTrainResult:
+    """Treina o CVAE com otimizadores separados para encoder e decoder, sem DP."""
+    dataset = TensorDataset(embeddings.float(), labels.long())
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+
+    model = CVAE(
+        input_dim=input_dim,
+        num_classes=num_classes,
+        latent_dim=latent_dim,
+        hidden_dim=hidden_dim,
+    ).to(device)
+
+    encoder_errors = ModuleValidator.validate(model.encoder, strict=False)
+    if encoder_errors:
+        model.encoder = ModuleValidator.fix(model.encoder)
+    decoder_errors = ModuleValidator.validate(model.decoder, strict=False)
+    if decoder_errors:
+        model.decoder = ModuleValidator.fix(model.decoder)
+    model.to(device)
+
+    encoder_optimizer = torch.optim.Adam(model.encoder.parameters(), lr=lr)
+    decoder_optimizer = torch.optim.Adam(model.decoder.parameters(), lr=lr)
+
+    final_loss = 0.0
+    for _ in range(epochs):
+        model.encoder.train()
+        model.decoder.train()
+        running_loss = 0.0
+        running_examples = 0
+
+        for x_batch, y_batch in loader:
+            x_batch = x_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            encoder_optimizer.zero_grad(set_to_none=True)
+            decoder_optimizer.zero_grad(set_to_none=True)
+
+            c_batch = one_hot(y_batch, num_classes=num_classes)
+            mu, logvar = model.encoder(x_batch, c_batch)
+            z = reparameterize(mu, logvar)
+            recon = model.decoder(z, c_batch)
+
+            loss = loss_function(recon, x_batch, mu, logvar, beta=beta)
+            loss.backward()
+            encoder_optimizer.step()
+            decoder_optimizer.step()
+
+            batch_n = y_batch.size(0)
+            running_loss += loss.item() * batch_n
+            running_examples += batch_n
+
+        final_loss = running_loss / max(running_examples, 1)
+
+    model.decoder.eval()
+    return DecoderDPTrainResult(
+        decoder=model.decoder,
+        epsilon=None,
+        num_examples=len(dataset),
+        final_loss=float(final_loss),
+    )
+
+
+def train_local_decoder_dp_cvae(
+    embeddings: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    input_dim: int = config.EMBEDDING_DIM,
+    num_classes: int = config.NUM_CLASSES,
+    latent_dim: int = config.CVAE_LATENT_DIM,
+    hidden_dim: int = config.CVAE_HIDDEN_DIM,
+    batch_size: int = config.CVAE_BATCH_SIZE,
+    epochs: int = config.CVAE_EPOCHS,
+    lr: float = config.CVAE_LR,
+    beta: float = config.CVAE_BETA,
+    target_epsilon: float = config.TARGET_EPSILON,
+    target_delta: float = config.TARGET_DELTA,
+    max_grad_norm: float = config.MAX_GRAD_NORM,
+    device: torch.device = torch.device("cpu"),
+) -> DecoderDPTrainResult:
+    """Treina o CVAE aplicando DP-SGD (Opacus) exclusivamente ao Decoder."""
+    dataset = TensorDataset(embeddings.float(), labels.long())
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+
+    model = CVAE(
+        input_dim=input_dim,
+        num_classes=num_classes,
+        latent_dim=latent_dim,
+        hidden_dim=hidden_dim,
+    ).to(device)
+
+    encoder_errors = ModuleValidator.validate(model.encoder, strict=False)
+    if encoder_errors:
+        model.encoder = ModuleValidator.fix(model.encoder)
+    decoder_errors = ModuleValidator.validate(model.decoder, strict=False)
+    if decoder_errors:
+        model.decoder = ModuleValidator.fix(model.decoder)
+    model.to(device)
+
+    encoder_optimizer = torch.optim.Adam(model.encoder.parameters(), lr=lr)
+    decoder_optimizer = torch.optim.Adam(model.decoder.parameters(), lr=lr)
+
+    privacy_engine = PrivacyEngine(secure_mode=False)
+    private_decoder, decoder_optimizer, loader = privacy_engine.make_private_with_epsilon(
+        module=model.decoder,
+        optimizer=decoder_optimizer,
+        data_loader=loader,
+        target_epsilon=target_epsilon,
+        target_delta=target_delta,
+        epochs=epochs,
+        max_grad_norm=max_grad_norm,
+    )
+
+    final_loss = 0.0
+    for _ in range(epochs):
+        model.encoder.train()
+        private_decoder.train()
+        running_loss = 0.0
+        running_examples = 0
+
+        for x_batch, y_batch in loader:
+            x_batch = x_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            encoder_optimizer.zero_grad(set_to_none=True)
+            decoder_optimizer.zero_grad(set_to_none=True)
+
+            c_batch = one_hot(y_batch, num_classes=num_classes)
+            mu, logvar = model.encoder(x_batch, c_batch)
+            z = reparameterize(mu, logvar)
+            recon = private_decoder(z, c_batch)
+
+            loss = loss_function(recon, x_batch, mu, logvar, beta=beta)
+            loss.backward()
+            encoder_optimizer.step()
+            decoder_optimizer.step()
+
+            batch_n = y_batch.size(0)
+            running_loss += loss.item() * batch_n
+            running_examples += batch_n
+
+        final_loss = running_loss / max(running_examples, 1)
+
+    epsilon = float(privacy_engine.get_epsilon(delta=target_delta))
+    plain_decoder = private_decoder._module if hasattr(private_decoder, "_module") else private_decoder
+    plain_decoder.eval()
+
+    return DecoderDPTrainResult(
+        decoder=plain_decoder,
+        epsilon=epsilon,
+        num_examples=len(dataset),
+        final_loss=float(final_loss),
+    )
+
+
+@torch.no_grad()
+def generate_synthetic_embeddings_from_decoder(
+    decoder: Decoder,
+    *,
+    real_labels: torch.Tensor,
+    num_classes: int = config.NUM_CLASSES,
+    latent_dim: int = config.CVAE_LATENT_DIM,
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Gera embeddings sintéticos diretamente a partir do Decoder do CVAE."""
+    decoder.to(device)
+    decoder.eval()
+
+    labels = real_labels.long().to(device)
+    labels = labels[torch.randperm(len(labels), device=device)]
+    num_samples = len(labels)
+
+    z = torch.randn(num_samples, latent_dim, device=device)
+    c = one_hot(labels, num_classes=num_classes)
+    synthetic = decoder(z, c)
+
+    return synthetic.cpu(), labels.cpu()
 
 
 @torch.no_grad()

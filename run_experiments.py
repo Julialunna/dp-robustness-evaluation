@@ -8,6 +8,7 @@ Pode ser executado diretamente via terminal ou dentro de um Jupyter Notebook:
     python run_experiments.py
 """
 
+import argparse
 import json
 import subprocess
 import sys
@@ -40,6 +41,13 @@ MODELS_CONFIG = [
     {"mode": "cvae_dp", "epsilon": 8.0, "label": "DP-CVAE (ε=8.0)", "color": "#9467bd", "marker": "d"},
 ]
 
+EXTRA_MODELS_CONFIG = [
+    {"mode": "cvae_decoder_no_dp", "epsilon": 0.0, "label": "CVAE Decoder sem DP", "color": "#17becf", "marker": "P"},
+    {"mode": "cvae_decoder_dp", "epsilon": 3.0, "label": "DP-Decoder (ε=3.0)", "color": "#e377c2", "marker": "X"},
+    {"mode": "cvae_decoder_dp", "epsilon": 5.0, "label": "DP-Decoder (ε=5.0)", "color": "#8c564b", "marker": "*"},
+    {"mode": "cvae_decoder_dp", "epsilon": 8.0, "label": "DP-Decoder (ε=8.0)", "color": "#bcbd22", "marker": "D"},
+]
+
 
 def plot_retention_graphs(results_df: pd.DataFrame, output_dir: Path) -> None:
     """Gera gráficos de retenção e qualidade vs nível de ruído para cada particionamento."""
@@ -70,14 +78,14 @@ def plot_retention_graphs(results_df: pd.DataFrame, output_dir: Path) -> None:
         # ----------------------------------------------------------------------
         fig, ax = plt.subplots(figsize=(8, 5.5), dpi=300)
 
-        for model_cfg in MODELS_CONFIG:
+        for model_cfg in MODELS_CONFIG + EXTRA_MODELS_CONFIG:
             mode = model_cfg["mode"]
             eps = model_cfg["epsilon"]
             label = model_cfg["label"]
             color = model_cfg["color"]
             marker = model_cfg["marker"]
 
-            if mode == "cvae_dp":
+            if mode in ("cvae_dp", "cvae_decoder_dp"):
                 m_df = part_df[(part_df["mode"] == mode) & (part_df["epsilon"] == eps)]
             else:
                 m_df = part_df[part_df["mode"] == mode]
@@ -126,14 +134,14 @@ def plot_retention_graphs(results_df: pd.DataFrame, output_dir: Path) -> None:
         # ----------------------------------------------------------------------
         fig, ax = plt.subplots(figsize=(8, 5.5), dpi=300)
 
-        for model_cfg in MODELS_CONFIG:
+        for model_cfg in MODELS_CONFIG + EXTRA_MODELS_CONFIG:
             mode = model_cfg["mode"]
             eps = model_cfg["epsilon"]
             label = model_cfg["label"]
             color = model_cfg["color"]
             marker = model_cfg["marker"]
 
-            if mode == "cvae_dp":
+            if mode in ("cvae_dp", "cvae_decoder_dp"):
                 m_df = part_df[(part_df["mode"] == mode) & (part_df["epsilon"] == eps)]
             else:
                 m_df = part_df[part_df["mode"] == mode]
@@ -180,14 +188,14 @@ def plot_retention_graphs(results_df: pd.DataFrame, output_dir: Path) -> None:
         # ----------------------------------------------------------------------
         fig, ax = plt.subplots(figsize=(8, 5.5), dpi=300)
 
-        for model_cfg in MODELS_CONFIG:
+        for model_cfg in MODELS_CONFIG + EXTRA_MODELS_CONFIG:
             mode = model_cfg["mode"]
             eps = model_cfg["epsilon"]
             label = model_cfg["label"]
             color = model_cfg["color"]
             marker = model_cfg["marker"]
 
-            if mode == "cvae_dp":
+            if mode in ("cvae_dp", "cvae_decoder_dp"):
                 m_df = part_df[(part_df["mode"] == mode) & (part_df["epsilon"] == eps)]
             else:
                 m_df = part_df[part_df["mode"] == mode]
@@ -230,7 +238,7 @@ def plot_retention_graphs(results_df: pd.DataFrame, output_dir: Path) -> None:
 
 
 def get_grid_directory(dataset_name: str) -> Path:
-    """Retorna a pasta da grade mais recente para permitir continuação (resume) ou cria uma nova."""
+    """Retorna a pasta da grade mais recente compatível para permitir continuação (resume) ou cria uma nova."""
     base_parent = Path("artifacts/experiments")
     base_parent.mkdir(parents=True, exist_ok=True)
     existing = sorted(
@@ -239,9 +247,15 @@ def get_grid_directory(dataset_name: str) -> Path:
         reverse=True,
     )
     for d in existing:
-        if any(d.glob("*/summary.json")):
-            print(f"🔄 Retomando execução na pasta existente: {d}\n")
-            return d
+        summaries = list(d.glob("*/summary.json"))
+        if summaries:
+            try:
+                sample = json.loads(summaries[0].read_text(encoding="utf-8"))
+                if sample.get("code_version") == config.SYNTHETIC_CACHE_VERSION:
+                    print(f"🔄 Retomando execução na pasta existente: {d}\n")
+                    return d
+            except Exception:
+                pass
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     new_dir = base_parent / f"grid_{dataset_name}_{timestamp}"
@@ -249,18 +263,39 @@ def get_grid_directory(dataset_name: str) -> Path:
     return new_dir
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Grid Runner de Experimentos Federados")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=None,
+        choices=["baseline", "cvae_sem_dp", "cvae_dp", "cvae_decoder_no_dp", "cvae_decoder_dp", "all"],
+        help="Filtra um modo específico ou 'all' para incluir também os modos decoder-only",
+    )
+    return parser.parse_args()
+
+
 def run_full_grid():
+    args = parse_args()
+    all_available = MODELS_CONFIG + EXTRA_MODELS_CONFIG
+    if args.mode == "all":
+        active_models = all_available
+    elif args.mode is not None:
+        active_models = [m for m in all_available if m["mode"] == args.mode]
+    else:
+        active_models = MODELS_CONFIG
+
     base_dir = get_grid_directory(config.DATASET)
     plots_dir = base_dir / "plots"
 
-    total_combinations = len(PARTITIONS) * len(MODELS_CONFIG) * len(SEEDS)
+    total_combinations = len(PARTITIONS) * len(active_models) * len(SEEDS)
     current_run = 0
 
     print("=" * 80)
     print("🚀 INICIANDO GRADE COMPLETA DE EXPERIMENTOS")
     print(f"Dataset: {config.DATASET} | Extrator: {config.EXTRACTOR_NAME}")
     print(f"Partições ({len(PARTITIONS)}): {[p['name'] for p in PARTITIONS]}")
-    print(f"Modalidades ({len(MODELS_CONFIG)}): {[m['label'] for m in MODELS_CONFIG]}")
+    print(f"Modalidades ({len(active_models)}): {[m['label'] for m in active_models]}")
     print(f"Sementes ({len(SEEDS)}): {SEEDS}")
     print(f"Total de Execuções: {total_combinations}")
     print(f"Resultados salvos em: {base_dir}")
@@ -270,7 +305,7 @@ def run_full_grid():
     grid_csv_path = base_dir / "grid_results.csv"
 
     for part in PARTITIONS:
-        for model_cfg in MODELS_CONFIG:
+        for model_cfg in active_models:
             for seed in SEEDS:
                 current_run += 1
                 cond_name = f"{part['name']}_{model_cfg['mode']}_eps{model_cfg['epsilon']}_seed{seed}"
@@ -287,7 +322,10 @@ def run_full_grid():
                 if summary_json.exists():
                     try:
                         summary_data = json.loads(summary_json.read_text(encoding="utf-8"))
-                        if summary_data.get("status") == "ok":
+                        if (
+                            summary_data.get("status") == "ok"
+                            and summary_data.get("code_version") == config.SYNTHETIC_CACHE_VERSION
+                        ):
                             acc_pct = summary_data.get("final_global_accuracy", 0.0) * 100
                             print(f"  ⏭️ Já concluído com sucesso (Acc={acc_pct:.2f}%). Pulando...")
                             summary_data["partition_label"] = part["label"]
@@ -349,8 +387,16 @@ def run_full_grid():
 
     if not valid_df.empty:
         group_cols = ["partitioner", "dirichlet_alpha", "mode", "epsilon", "partition_label", "model_label"]
-        numeric_cols = valid_df.select_dtypes(include=[np.number]).columns.drop("seed", errors="ignore")
-        summary_agg = valid_df.groupby(group_cols)[numeric_cols].agg(["mean", "std"]).reset_index()
+        numeric_cols = [
+            c
+            for c in valid_df.select_dtypes(include=[np.number]).columns
+            if c not in group_cols and c != "seed" and c != "code_version"
+        ]
+        summary_agg = (
+            valid_df.groupby(group_cols, dropna=False)[numeric_cols]
+            .agg(["mean", "std"])
+            .reset_index()
+        )
         summary_csv_path = base_dir / "grid_summary.csv"
         summary_agg.to_csv(summary_csv_path, index=False)
         print(f"📊 Resumo estatístico salvo em: {summary_csv_path}")

@@ -34,7 +34,19 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default=config.DATASET, help="Nome do dataset")
     parser.add_argument("--partitioner", type=str, default=config.PARTITIONER, choices=["iid", "dirichlet"], help="Tipo de partição")
     parser.add_argument("--dirichlet-alpha", type=float, default=config.DIRICHLET_ALPHA, help="Alpha para partição Dirichlet")
-    parser.add_argument("--mode", type=str, default=config.TRAIN_MODE, choices=["baseline", "cvae_sem_dp", "cvae_dp"], help="Modo de treino")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=config.TRAIN_MODE,
+        choices=[
+            "baseline",
+            "cvae_sem_dp",
+            "cvae_dp",
+            "cvae_decoder_no_dp",
+            "cvae_decoder_dp",
+        ],
+        help="Modo de treino",
+    )
     parser.add_argument("--epsilon", type=float, default=config.TARGET_EPSILON, help="Epsilon para DP-SGD")
     parser.add_argument("--seed", type=int, default=config.BASE_SEED, help="Semente para reprodutibilidade")
     parser.add_argument("--num-rounds", type=int, default=config.NUM_SERVER_ROUNDS, help="Número de rodadas federadas")
@@ -171,6 +183,7 @@ class ServerMetricCollector:
         return {
             "seed": seed,
             "status": "ok",
+            "code_version": config.SYNTHETIC_CACHE_VERSION,
             "dataset": config.DATASET,
             "extractor": config.EXTRACTOR_NAME,
             "mode": config.TRAIN_MODE,
@@ -217,6 +230,7 @@ def run_single_experiment(args) -> dict[str, Any]:
         train_mode=args.mode,
         target_epsilon=args.epsilon,
         num_server_rounds=args.num_rounds,
+        seed=args.seed,
     )
 
     seed = args.seed
