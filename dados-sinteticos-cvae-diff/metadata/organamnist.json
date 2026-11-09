@@ -1,0 +1,48 @@
+{
+  "flag": "organamnist",
+  "task": "multi-class",
+  "n_channels": 1,
+  "n_classes": 11,
+  "labels": {
+    "0": "bladder",
+    "1": "femur-left",
+    "2": "femur-right",
+    "3": "heart",
+    "4": "kidney-left",
+    "5": "kidney-right",
+    "6": "liver",
+    "7": "lung-left",
+    "8": "lung-right",
+    "9": "pancreas",
+    "10": "spleen"
+  },
+  "n_samples": {
+    "train": 34561,
+    "val": 6491,
+    "test": 17778
+  },
+  "archives": {
+    "28": {
+      "file": "organamnist.npz",
+      "md5": "68e3f8846a6bd62f0c9bf841c0d9eacc",
+      "url": "https://zenodo.org/records/10519652/files/organamnist.npz?download=1"
+    },
+    "64": {
+      "file": "organamnist_64.npz",
+      "md5": "2dcccc29b88e6da5a01161ef20cda288",
+      "url": "https://zenodo.org/records/10519652/files/organamnist_64.npz?download=1"
+    },
+    "128": {
+      "file": "organamnist_128.npz",
+      "md5": "eeae80d0a227a8d099027e1b3cfd3b60",
+      "url": "https://zenodo.org/records/10519652/files/organamnist_128.npz?download=1"
+    },
+    "224": {
+      "file": "organamnist_224.npz",
+      "md5": "50747347e05c87dd3aaf92c49f9f3170",
+      "url": "https://zenodo.org/records/10519652/files/organamnist_224.npz?download=1"
+    }
+  },
+  "license": "CC BY 4.0",
+  "source": "generated from the medmnist INFO table; the pipeline no longer imports medmnist"
+}

@@ -1,0 +1,37 @@
+# Jobs do Flautim para o gerador de dados sintéticos (dp_FL/dados_sinteticos), no formato do code_v3.
+# A pasta deste arquivo vira o /workspace do job; o .flautimignore define o que não sobe.
+#
+# Entrada: o MedMNIST 64x64 montado em /workspace/dataset (<flag>_64.npz + metadata/). Se o arquivo de um dataset
+# faltar, o código baixa do Zenodo, com md5 conferido (AUTO_DOWNLOAD=1).
+# Backbone: DINOv2 ViT-S/14 pelo torch.hub, o mesmo do dp_FL (precisa de internet no nó; funcionou nos jobs
+# anteriores). Sem internet, use BACKBONE: dinov2_vitb14, que lê os pesos de dataset/metadata/weights.
+# Saída em ../output (= /output): modelos/<flag>/ (cvae.pt, difusao.pt, históricos, amostras.png), sinteticos/
+# (sinteticos_<flag>.npz e amostras_<flag>.png), emb/ (cache dos embeddings) e logs/.
+# Não há segredo neste arquivo nem no código.
+version: 1
+project: kunumiFM          # projeto do Flautim onde está o dataset abaixo (é só a conta de computação)
+defaults:
+  queue: priority-queue
+  image: 192.168.7.26:5000/experiments-gpu:0.3
+  profile: medio           # 1 GPU (MIG 1g.18gb); o tempo vai quase todo na difusão
+  dataset: 5843ab78cbb24511b0486f8745ca8e5d@v3   # MedMNIST 64x64 (os 8 datasets)
+  env:
+    SINT_DATA: dataset
+    SINT_OUTPUT: ../output
+    AUTO_DOWNLOAD: "1"
+    BACKBONE: dinov2_vits14
+    N_SINT: "10000"          # sintéticos gerados no fim (~27 min para 10 000 no perfil medio)
+    # EXTRA_TREINO: "--epocas 40 --cond-classe 1"   # mais épocas; condicionar também na classe
+    # EXTRA_GERAR: "--balanceado"                    # o mesmo número de imagens por classe
+  # timeLimit: 4h
+jobs:
+  - name: sint-check        # 1-2 min: python, torch, GPU, arquivos do dataset, DINOv2 carrega
+    command: bash run.sh check
+  - name: sint-smoke        # ~10 min: bloodmnist, 1000 linhas por split, 2 épocas; saída em ../output/smoke
+    command: bash run.sh smoke
+  - name: sint-path         # PathMNIST: embeddings, CVAE (30 épocas), difusão (20 épocas), 10 000 sintéticos.
+                            #   Estimativa: ~2,5 h de difusão + ~0,5 h de geração no perfil medio.
+    command: bash run.sh tudo pathmnist
+  - name: sint-gerar-path   # só gera, sem treinar: copie cvae.pt e difusao.pt de um job anterior para
+                            #   modelos/pathmnist/ (esta pasta sobe com o job)
+    command: bash run.sh gerar pathmnist

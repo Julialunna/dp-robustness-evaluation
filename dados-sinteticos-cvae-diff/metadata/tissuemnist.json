@@ -1,0 +1,45 @@
+{
+  "flag": "tissuemnist",
+  "task": "multi-class",
+  "n_channels": 1,
+  "n_classes": 8,
+  "labels": {
+    "0": "Collecting Duct, Connecting Tubule",
+    "1": "Distal Convoluted Tubule",
+    "2": "Glomerular endothelial cells",
+    "3": "Interstitial endothelial cells",
+    "4": "Leukocytes",
+    "5": "Podocytes",
+    "6": "Proximal Tubule Segments",
+    "7": "Thick Ascending Limb"
+  },
+  "n_samples": {
+    "train": 165466,
+    "val": 23640,
+    "test": 47280
+  },
+  "archives": {
+    "28": {
+      "file": "tissuemnist.npz",
+      "md5": "ebe78ee8b05294063de985d821c1c34b",
+      "url": "https://zenodo.org/records/10519652/files/tissuemnist.npz?download=1"
+    },
+    "64": {
+      "file": "tissuemnist_64.npz",
+      "md5": "123ece2eba09d0aa5d698fda57103344",
+      "url": "https://zenodo.org/records/10519652/files/tissuemnist_64.npz?download=1"
+    },
+    "128": {
+      "file": "tissuemnist_128.npz",
+      "md5": "61b955355d7425a89687b06cca3ce0c2",
+      "url": "https://zenodo.org/records/10519652/files/tissuemnist_128.npz?download=1"
+    },
+    "224": {
+      "file": "tissuemnist_224.npz",
+      "md5": "b077128c4a949f0a4eb01517f9037b9c",
+      "url": "https://zenodo.org/records/10519652/files/tissuemnist_224.npz?download=1"
+    }
+  },
+  "license": "CC BY 4.0 (MedMNIST v2)",
+  "source": "MedMNIST v2 INFO table (labels, n_samples) and Zenodo record 10519652 (file md5s, read from the record API on 2026-10-15); the loader checks n_samples against the archive"
+}

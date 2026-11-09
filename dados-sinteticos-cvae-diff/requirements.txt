@@ -1,0 +1,6 @@
+# Instalado pelo Flautim no início de cada job. torch fixado na versão da imagem experiments-gpu:0.3.
+torch==2.10.0
+numpy>=1.24
+matplotlib>=3.7
+# só para BACKBONE=dinov2_vitb14 (pesos offline do dataset); o ViT-S/14 vem do torch.hub e não precisa dele
+timm==1.0.15

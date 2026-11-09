@@ -1,0 +1,45 @@
+{
+  "flag": "bloodmnist",
+  "task": "multi-class",
+  "n_channels": 3,
+  "n_classes": 8,
+  "labels": {
+    "0": "basophil",
+    "1": "eosinophil",
+    "2": "erythroblast",
+    "3": "immature granulocytes(myelocytes, metamyelocytes and promyelocytes)",
+    "4": "lymphocyte",
+    "5": "monocyte",
+    "6": "neutrophil",
+    "7": "platelet"
+  },
+  "n_samples": {
+    "train": 11959,
+    "val": 1712,
+    "test": 3421
+  },
+  "archives": {
+    "28": {
+      "file": "bloodmnist.npz",
+      "md5": "7053d0359d879ad8a5505303e11de1dc",
+      "url": "https://zenodo.org/records/10519652/files/bloodmnist.npz?download=1"
+    },
+    "64": {
+      "file": "bloodmnist_64.npz",
+      "md5": "2b94928a2ae4916078ca51e05b6b800b",
+      "url": "https://zenodo.org/records/10519652/files/bloodmnist_64.npz?download=1"
+    },
+    "128": {
+      "file": "bloodmnist_128.npz",
+      "md5": "adace1e0ed228fccda1f39692059dd4c",
+      "url": "https://zenodo.org/records/10519652/files/bloodmnist_128.npz?download=1"
+    },
+    "224": {
+      "file": "bloodmnist_224.npz",
+      "md5": "b718ff6835fcbdb22ba9eacccd7b2601",
+      "url": "https://zenodo.org/records/10519652/files/bloodmnist_224.npz?download=1"
+    }
+  },
+  "license": "CC BY 4.0",
+  "source": "generated from the medmnist INFO table; the pipeline no longer imports medmnist"
+}

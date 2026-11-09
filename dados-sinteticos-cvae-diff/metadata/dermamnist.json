@@ -1,0 +1,44 @@
+{
+  "flag": "dermamnist",
+  "task": "multi-class",
+  "n_channels": 3,
+  "n_classes": 7,
+  "labels": {
+    "0": "actinic keratoses and intraepithelial carcinoma",
+    "1": "basal cell carcinoma",
+    "2": "benign keratosis-like lesions",
+    "3": "dermatofibroma",
+    "4": "melanoma",
+    "5": "melanocytic nevi",
+    "6": "vascular lesions"
+  },
+  "n_samples": {
+    "train": 7007,
+    "val": 1003,
+    "test": 2005
+  },
+  "archives": {
+    "28": {
+      "file": "dermamnist.npz",
+      "md5": "0744692d530f8e62ec473284d019b0c7",
+      "url": "https://zenodo.org/records/10519652/files/dermamnist.npz?download=1"
+    },
+    "64": {
+      "file": "dermamnist_64.npz",
+      "md5": "b70a2f5635c6199aeaa28c31d7202e1f",
+      "url": "https://zenodo.org/records/10519652/files/dermamnist_64.npz?download=1"
+    },
+    "128": {
+      "file": "dermamnist_128.npz",
+      "md5": "2defd784463fa5243564e855ed717de1",
+      "url": "https://zenodo.org/records/10519652/files/dermamnist_128.npz?download=1"
+    },
+    "224": {
+      "file": "dermamnist_224.npz",
+      "md5": "8974907d8e169bef5f5b96bc506ae45d",
+      "url": "https://zenodo.org/records/10519652/files/dermamnist_224.npz?download=1"
+    }
+  },
+  "license": "CC BY-NC 4.0",
+  "source": "generated from the medmnist INFO table; the pipeline no longer imports medmnist"
+}

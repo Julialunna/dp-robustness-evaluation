@@ -1,0 +1,41 @@
+{
+  "flag": "octmnist",
+  "task": "multi-class",
+  "n_channels": 1,
+  "n_classes": 4,
+  "labels": {
+    "0": "choroidal neovascularization",
+    "1": "diabetic macular edema",
+    "2": "drusen",
+    "3": "normal"
+  },
+  "n_samples": {
+    "train": 97477,
+    "val": 10832,
+    "test": 1000
+  },
+  "archives": {
+    "28": {
+      "file": "octmnist.npz",
+      "md5": "c68d92d5b585d8d81f7112f81e2d0842",
+      "url": "https://zenodo.org/records/10519652/files/octmnist.npz?download=1"
+    },
+    "64": {
+      "file": "octmnist_64.npz",
+      "md5": "e229e9440236b774d9f0dfef9d07bdaf",
+      "url": "https://zenodo.org/records/10519652/files/octmnist_64.npz?download=1"
+    },
+    "128": {
+      "file": "octmnist_128.npz",
+      "md5": "0a97e76651ace45c5d943ee3f65b63ae",
+      "url": "https://zenodo.org/records/10519652/files/octmnist_128.npz?download=1"
+    },
+    "224": {
+      "file": "octmnist_224.npz",
+      "md5": "abc493b6d529d5de7569faaef2773ba3",
+      "url": "https://zenodo.org/records/10519652/files/octmnist_224.npz?download=1"
+    }
+  },
+  "license": "CC BY 4.0",
+  "source": "generated from the medmnist INFO table; the pipeline no longer imports medmnist"
+}
